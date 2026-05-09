@@ -2,8 +2,9 @@ import { getDb } from "../db/database.ts";
 import { scanWallet } from "./emeraldguard.ts";
 import { getWalletBalance, getHeliusTransactions } from "./solana.ts";
 
-const SCAN_INTERVAL_MS = 3_600_000; // 1 hour
-const CACHE_WINDOW_MS  = 50 * 60 * 1000; // 50 minutes
+const SCAN_INTERVAL_MS   = 3_600_000;      // 1 hour
+const CACHE_WINDOW_MS    = 50 * 60 * 1000; // 50 minutes
+const BACKUP_INTERVAL_MS = 24 * 3_600_000; // 24 hours
 
 // In-memory cache: walletAddress -> last scan timestamp (ms)
 const lastScanAt = new Map<string, number>();
@@ -107,6 +108,22 @@ async function runScheduledScans(): Promise<void> {
   }
 }
 
+async function backupDatabase(): Promise<void> {
+  const dbPath  = Bun.env.DB_PATH ?? "./emeraldfi.db";
+  const backupDir = "./backups";
+  try {
+    await Bun.$`mkdir -p ${backupDir}`.quiet();
+    const ts     = new Date().toISOString().slice(0, 10);
+    const dest   = `${backupDir}/emeraldfi-${ts}.db`;
+    await Bun.$`cp ${dbPath} ${dest}`.quiet();
+    // Keep only last 7 backups
+    await Bun.$`ls -t ${backupDir}/emeraldfi-*.db | tail -n +8 | xargs -r rm`.quiet();
+    console.log(`[Scheduler] DB backup saved: ${dest}`);
+  } catch (err) {
+    console.error("[Scheduler] DB backup failed:", err);
+  }
+}
+
 export function startScheduler(): void {
   const db = getDb();
 
@@ -122,4 +139,12 @@ export function startScheduler(): void {
       console.error("[Scheduler] Unexpected error in tick:", err);
     });
   }, SCAN_INTERVAL_MS);
+
+  // Daily database backup
+  backupDatabase();
+  setInterval(() => {
+    backupDatabase().catch((err) => {
+      console.error("[Scheduler] Backup error:", err);
+    });
+  }, BACKUP_INTERVAL_MS);
 }

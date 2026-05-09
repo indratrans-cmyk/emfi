@@ -354,6 +354,22 @@ function ScanHistory({ address }: { address: string }) {
   );
 }
 
+// ─── Share Button ─────────────────────────────────────────────────────────────
+function ShareButton({ r }: { r: GuardReport }) {
+  const patternCount = r.detectedSignals.length;
+  const pct = (r.overallLossProbability * 100).toFixed(0);
+  const text = patternCount === 0
+    ? `Just scanned my Solana wallet on EmeraldFi — wallet clean, no pre-disaster patterns! Free scan 👇`
+    : `🚨 EmeraldFi detected ${patternCount} dangerous pattern${patternCount > 1 ? "s" : ""} in my Solana wallet — ${pct}% loss probability. Risk: ${r.overallRisk.toUpperCase()}. Check yours 👇`;
+  const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent("https://emeraldfinance.fun")}`;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="btn-share">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      Share on X
+    </a>
+  );
+}
+
 // ─── Scan Result ──────────────────────────────────────────────────────────────
 function ScanResult({ r }: { r: GuardReport }) {
   const clean = r.detectedSignals.length === 0;
@@ -398,7 +414,88 @@ function ScanResult({ r }: { r: GuardReport }) {
           )}
         </>
       )}
+      <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+        <ShareButton r={r} />
+      </div>
       <ScanHistory address={r.walletAddress} />
+    </div>
+  );
+}
+
+// ─── HiveLoss Form ────────────────────────────────────────────────────────────
+const ALL_PATTERNS = [
+  "FOMO_SPIRAL","LOSS_CHASER","NIGHT_FOMO","NEW_TOKEN_RUSH",
+  "DEGEN_ACCEL","PANIC_AVERAGE","PORTFOLIO_DUMP","RAPID_REVERSAL",
+];
+function HiveLossForm() {
+  const [wallet,  setWallet]  = useState("");
+  const [loss,    setLoss]    = useState("50");
+  const [token,   setToken]   = useState("");
+  const [tags,    setTags]    = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [done,    setDone]    = useState(false);
+  const [err,     setErr]     = useState<string|null>(null);
+
+  const toggleTag = (t: string) =>
+    setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+
+  const submit = async () => {
+    if (!wallet.trim()) { setErr("Wallet address required"); return; }
+    setLoading(true); setErr(null);
+    try {
+      const res  = await fetch("/api/hiveloss/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: wallet.trim(),
+          lossPercentage: Number(loss),
+          tokenAddress: token.trim() || undefined,
+          patternTags: tags,
+        }),
+      });
+      const data = await res.json() as { success: boolean; error?: string };
+      if (data.success) setDone(true);
+      else setErr(data.error ?? "Submission failed");
+    } catch { setErr("Network error"); }
+    finally { setLoading(false); }
+  };
+
+  if (done) return (
+    <div className="hiveloss-done">
+      <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🐝</div>
+      <div style={{ fontFamily: "var(--font-heading)", fontWeight: 700, color: "var(--primary)", marginBottom: "0.5rem" }}>Thank you for protecting the hive.</div>
+      <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Your anonymous report strengthens community intelligence for every trader.</div>
+    </div>
+  );
+
+  return (
+    <div className="hiveloss-form">
+      <div className="hl-row">
+        <label className="hl-label">Wallet Address <span style={{color:"var(--danger)"}}>*</span></label>
+        <input className="hl-input" placeholder="Your Solana wallet address" value={wallet} onChange={e => setWallet(e.target.value)} />
+      </div>
+      <div className="hl-row">
+        <label className="hl-label">Loss Amount: <strong style={{color:"var(--danger)"}}>{loss}%</strong></label>
+        <input type="range" min="1" max="100" value={loss} onChange={e => setLoss(e.target.value)} className="hl-range" />
+      </div>
+      <div className="hl-row">
+        <label className="hl-label">Token Address <span style={{color:"var(--text-dim)"}}}>(optional)</span></label>
+        <input className="hl-input" placeholder="Token that caused the loss" value={token} onChange={e => setToken(e.target.value)} />
+      </div>
+      <div className="hl-row">
+        <label className="hl-label">Pattern Tags <span style={{color:"var(--text-dim)"}}}>(select all that apply)</span></label>
+        <div className="hl-tags">
+          {ALL_PATTERNS.map(p => (
+            <button key={p} className={`hl-tag${tags.includes(p) ? " active" : ""}`} onClick={() => toggleTag(p)}>
+              {p.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+      </div>
+      {err && <div className="scan-error">⚠ {err}</div>}
+      <button className="btn-primary" onClick={submit} disabled={loading} style={{ marginTop: "1rem", width: "100%" }}>
+        {loading ? "Submitting..." : "🐝 Submit Anonymous Report"}
+      </button>
     </div>
   );
 }
@@ -574,7 +671,7 @@ function Landing() {
       <nav className={`nav${scrolled ? " scrolled" : ""}`}>
         <Logo />
         <ul className="nav-links">
-          {([ ["problem","Problem"],["solution","Solution"],["proof","Proof"],["faq","FAQ"] ] as [string, string][]).map(([id, label]) => (
+          {([ ["problem","Problem"],["solution","Solution"],["hiveloss","HiveLoss"],["proof","Proof"],["faq","FAQ"] ] as [string, string][]).map(([id, label]) => (
             <li key={id}>
               <a href={`#${id}`} onClick={e => { e.preventDefault(); go(id); }}>{label}</a>
             </li>
@@ -737,6 +834,20 @@ function Landing() {
               </ul>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ═══ HIVELOSS REPORT ══════════════════════════════════════════════════ */}
+      <section id="hiveloss" className="section-pad hiveloss-section">
+        <div className="container" style={{ maxWidth: 760 }}>
+          <div className="section-label">Community Shield</div>
+          <h2 className="heading" style={{ fontSize: "clamp(1.75rem, 3.5vw, 2.6rem)", maxWidth: 520, marginBottom: "0.875rem" }}>
+            Turn Your Loss Into<br />Community Protection
+          </h2>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.95rem", maxWidth: 480, lineHeight: 1.75, marginBottom: "2rem" }}>
+            Submit an anonymous loss report. Your data — hashed and stripped of identity — helps warn other traders about dangerous patterns and tokens.
+          </p>
+          <HiveLossForm />
         </div>
       </section>
 

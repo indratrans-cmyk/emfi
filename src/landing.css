@@ -1197,6 +1197,83 @@ section { position: relative; z-index: 1; }
   .footer-inner  { grid-template-columns: 1fr; }
 }
 
+/* ─── Share Button ───────────────────────────────────────────────────────────── */
+.btn-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.btn-share:hover { border-color: var(--text-muted); color: var(--text); background: rgba(255,255,255,0.06); }
+
+/* ─── HiveLoss Form ──────────────────────────────────────────────────────────── */
+.hiveloss-section { background: linear-gradient(180deg, transparent, rgba(0,229,107,0.02) 50%, transparent); }
+.hiveloss-form {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+.hiveloss-done {
+  background: var(--surface-card);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem;
+  text-align: center;
+}
+.hl-row { margin-bottom: 1.25rem; }
+.hl-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.hl-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  outline: none;
+  transition: border-color var(--t-fast);
+}
+.hl-input:focus { border-color: var(--primary); }
+.hl-range {
+  width: 100%;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.hl-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.hl-tag {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.hl-tag:hover { border-color: var(--primary); color: var(--primary); }
+.hl-tag.active { border-color: var(--primary); color: var(--primary); background: rgba(0,229,107,0.08); }
+
 /* ─── Telegram Button ────────────────────────────────────────────────────────── */
 .btn-telegram {
   display: inline-flex;
