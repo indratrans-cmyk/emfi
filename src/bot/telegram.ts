@@ -80,6 +80,36 @@ export async function setWebhook(): Promise<void> {
   }
 }
 
+export async function setMyCommands(): Promise<void> {
+  if (!Bun.env.TELEGRAM_BOT_TOKEN) {
+    console.warn("TELEGRAM_BOT_TOKEN not set, skipping setMyCommands");
+    return;
+  }
+
+  const commands = [
+    { command: "start",    description: "Welcome & quick guide" },
+    { command: "guard",    description: "Scan wallet: /guard <address>" },
+    { command: "hiveloss", description: "Community loss intelligence" },
+    { command: "patterns", description: "View all 8 risk patterns" },
+    { command: "token",    description: "Check token risk: /token <address>" },
+    { command: "report",   description: "Submit anonymous loss report" },
+    { command: "help",     description: "Show all commands" },
+  ];
+
+  const res = await fetch(`${BASE_URL}/setMyCommands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ commands }),
+  });
+
+  const data = (await res.json()) as { ok: boolean; description?: string };
+  if (data.ok) {
+    console.log("✅ Telegram bot commands registered");
+  } else {
+    console.error("❌ setMyCommands failed:", data.description);
+  }
+}
+
 // ─── Command Handlers ─────────────────────────────────────────────────────────
 
 async function handleStart(chatId: number, userId: string, name: string): Promise<void> {

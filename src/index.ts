@@ -1,13 +1,14 @@
 import { handleWalletAnalyze, handleWalletRegister } from "./routes/wallet.ts";
 import { handleGuardScan, handleGuardPatterns } from "./routes/guard.ts";
 import { handleHiveLossGet, handleHiveLossSubmit, handleTokenRisk } from "./routes/hiveloss.ts";
-import { handleTelegramUpdate, setWebhook, verifyWebhookSecret } from "./bot/telegram.ts";
+import { handleTelegramUpdate, setWebhook, setMyCommands, verifyWebhookSecret } from "./bot/telegram.ts";
 import { handleStats } from "./routes/stats.ts";
 import { handleRecentAlerts } from "./routes/alerts.ts";
 import { handleConfig } from "./routes/config.ts";
 import { handleGuardHistory } from "./routes/history.ts";
 import { checkScanRateLimit, checkDefaultRateLimit } from "./middleware/rateLimit.ts";
 import { getDb } from "./db/database.ts";
+import { startScheduler } from "./services/scheduler.ts";
 import type { TelegramUpdate } from "./types/index.ts";
 import landing from "./landing.html";
 
@@ -19,17 +20,74 @@ const startedAt = Date.now();
 // Initialize DB on startup
 getDb();
 
-// Register Telegram webhook
+// Register Telegram webhook and bot command menu
 await setWebhook();
+await setMyCommands();
 
-function cors(res: Response): Response {
-  res.headers.set("Access-Control-Allow-Origin", "*");
+// Start scheduled wallet monitoring (every hour)
+startScheduler();
+
+const ORIGIN_API = "https://emeraldfinance.fun";
+
+function secureHeaders(res: Response, allowAllOrigins = false): Response {
+  res.headers.set("Access-Control-Allow-Origin", allowAllOrigins ? "*" : ORIGIN_API);
   res.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.headers.set("Access-Control-Allow-Headers", "Content-Type");
+  res.headers.set("X-Frame-Options", "DENY");
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  res.headers.set("X-XSS-Protection", "1; mode=block");
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   return res;
 }
 
-function notFound(): Response {
+// Backwards-compat alias used in non-API paths (health, docs, webhook)
+function cors(res: Response): Response {
+  return secureHeaders(res, true);
+}
+
+function notFound(req?: Request): Response {
+  const accept = req?.headers.get("Accept") ?? "";
+  if (accept.includes("text/html")) {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>404 — Page Not Found | EmeraldFi</title>
+  <style>
+    :root { --bg: #030806; --surface: #0c1810; --border: #1a3325; --text: #ddeee5; --muted: #6a9478; --primary: #00e56b; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 3rem 2.5rem; max-width: 480px; width: 100%; text-align: center; }
+    .code { font-size: 6rem; font-weight: 900; color: var(--primary); line-height: 1; margin-bottom: 1rem; letter-spacing: -4px; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.75rem; }
+    p { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; line-height: 1.6; }
+    .actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    a { display: inline-block; padding: 0.6rem 1.4rem; border-radius: 6px; font-size: 0.9rem; font-weight: 600; text-decoration: none; }
+    .btn-primary { background: var(--primary); color: #030806; }
+    .btn-secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-secondary:hover { background: rgba(0,229,107,0.08); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="code">404</div>
+    <h1>Page Not Found</h1>
+    <p>The page you're looking for doesn't exist or has been moved.<br/>Head back home or check the API docs.</p>
+    <div class="actions">
+      <a href="/" class="btn-primary">Go Home</a>
+      <a href="/docs" class="btn-secondary">API Docs</a>
+    </div>
+  </div>
+</body>
+</html>`;
+    return new Response(html, {
+      status: 404,
+      headers: { "Content-Type": "text/html; charset=utf-8", "X-Frame-Options": "DENY" },
+    });
+  }
   return cors(
     new Response(JSON.stringify({ success: false, error: "Not found" }), {
       status: 404,
@@ -186,7 +244,33 @@ const server = Bun.serve({
     const method = req.method;
 
     if (method === "OPTIONS") {
-      return cors(new Response(null, { status: 204 }));
+      return secureHeaders(new Response(null, { status: 204 }), true);
+    }
+
+    // ─── Static Assets ────────────────────────────────────────────────────────
+    if (path === "/favicon.png" && method === "GET") {
+      const file = Bun.file("./asset/emfi logo png.png");
+      return new Response(file, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+    }
+
+    if (path === "/emfibg.png" && method === "GET") {
+      const file = Bun.file("./asset/emfibg.png");
+      return new Response(file, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+    }
+
+    // ─── SEO ─────────────────────────────────────────────────────────────────
+    if (path === "/robots.txt" && method === "GET") {
+      const body = `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /webhook/\nSitemap: https://emeraldfinance.fun/sitemap.xml\n`;
+      return new Response(body, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+
+    if (path === "/sitemap.xml" && method === "GET") {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://emeraldfinance.fun/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://emeraldfinance.fun/docs</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+</urlset>`;
+      return new Response(xml, { headers: { "Content-Type": "application/xml; charset=utf-8" } });
     }
 
     // ─── API Documentation ────────────────────────────────────────────────────
@@ -244,63 +328,63 @@ const server = Bun.serve({
     // ─── Stats / Config / Alerts ──────────────────────────────────────────────
     if (path === "/api/stats" && method === "GET") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(handleStats(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(handleStats(req));
     }
 
     if (path === "/api/config" && method === "GET") {
-      return cors(handleConfig(req));
+      return secureHeaders(handleConfig(req));
     }
 
     if (path === "/api/alerts/recent" && method === "GET") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(handleRecentAlerts(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(handleRecentAlerts(req));
     }
 
     // ─── Wallet API ───────────────────────────────────────────────────────────
     if (path === "/api/wallet" && method === "GET") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(await handleWalletAnalyze(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(await handleWalletAnalyze(req));
     }
     if (path === "/api/wallet/register" && method === "POST") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(await handleWalletRegister(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(await handleWalletRegister(req));
     }
 
     // ─── EmeraldGuard API ─────────────────────────────────────────────────────
     if (path === "/api/guard/scan" && method === "GET") {
       const rl = checkScanRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(await handleGuardScan(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(await handleGuardScan(req));
     }
     if (path === "/api/guard/patterns" && method === "GET") {
-      return cors(handleGuardPatterns(req));
+      return secureHeaders(handleGuardPatterns(req));
     }
     if (path === "/api/guard/history" && method === "GET") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(handleGuardHistory(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(handleGuardHistory(req));
     }
 
     // ─── HiveLoss API ─────────────────────────────────────────────────────────
     if (path === "/api/hiveloss" && method === "GET") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(await handleHiveLossGet(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(await handleHiveLossGet(req));
     }
     if (path === "/api/hiveloss/submit" && method === "POST") {
       const rl = checkDefaultRateLimit(req);
-      if (rl) return cors(rl);
-      return cors(await handleHiveLossSubmit(req));
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(await handleHiveLossSubmit(req));
     }
     if (path === "/api/hiveloss/token" && method === "GET") {
-      return cors(handleTokenRisk(req));
+      return secureHeaders(handleTokenRisk(req));
     }
 
-    return notFound();
+    return notFound(req);
   },
 });
 
