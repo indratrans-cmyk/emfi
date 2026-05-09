@@ -1,6 +1,7 @@
 import { getDb } from "../db/database.ts";
 import { scanWallet } from "./emeraldguard.ts";
 import { getWalletBalance, getHeliusTransactions } from "./solana.ts";
+import { sendEmail, buildAlertEmail } from "./email.ts";
 
 const SCAN_INTERVAL_MS   = 3_600_000;      // 1 hour
 const CACHE_WINDOW_MS    = 50 * 60 * 1000; // 50 minutes
@@ -28,15 +29,15 @@ async function sendTelegramAlert(chatId: string, text: string): Promise<void> {
   }
 }
 
-async function scanRegisteredWallet(address: string, chatId: string): Promise<void> {
+async function scanRegisteredWallet(
+  address: string,
+  chatId: string,
+  emailAddress?: string
+): Promise<void> {
   const now = Date.now();
   const lastScan = lastScanAt.get(address) ?? 0;
 
-  if (now - lastScan < CACHE_WINDOW_MS) {
-    // Already scanned recently — skip to avoid spam
-    return;
-  }
-
+  if (now - lastScan < CACHE_WINDOW_MS) return;
   lastScanAt.set(address, now);
 
   try {
@@ -54,20 +55,16 @@ async function scanRegisteredWallet(address: string, chatId: string): Promise<vo
     if (!hasCriticalOrHigh) return;
 
     const riskEmoji = {
-      critical: "🔴",
-      high:     "🟠",
-      medium:   "🟡",
-      low:      "🟢",
+      critical: "🔴", high: "🟠", medium: "🟡", low: "🟢",
     }[report.overallRisk] ?? "⚠️";
 
+    // ── Telegram alert ──────────────────────────────────────────────────────
     let msg = `${riskEmoji} *[EmeraldGuard Alert] Scheduled Scan*\n\n`;
     msg += `Wallet: \`${address.slice(0, 8)}...${address.slice(-4)}\`\n`;
     msg += `Risk Level: *${report.overallRisk.toUpperCase()}*\n`;
     msg += `Loss Probability: *${(report.overallLossProbability * 100).toFixed(0)}%*\n\n`;
 
-    if (report.shouldPause) {
-      msg += `⛔ *RECOMMENDATION: PAUSE ALL TRADING*\n\n`;
-    }
+    if (report.shouldPause) msg += `⛔ *RECOMMENDATION: PAUSE ALL TRADING*\n\n`;
 
     if (report.detectedSignals.length > 0) {
       msg += `*Detected Patterns:*\n`;
@@ -77,23 +74,40 @@ async function scanRegisteredWallet(address: string, chatId: string): Promise<vo
         msg += `   ${signal.details}\n\n`;
       }
     }
-
     msg += `_Use /guard ${address} for full report._`;
 
     await sendTelegramAlert(chatId, msg);
+
+    // ── Email alert ─────────────────────────────────────────────────────────
+    if (emailAddress) {
+      const riskLabel = report.overallRisk.toUpperCase();
+      const subject   = `${riskEmoji} EmeraldGuard Alert — ${riskLabel} risk on your wallet`;
+      await sendEmail(emailAddress, subject, buildAlertEmail(address, report));
+    }
   } catch (err) {
     console.error(`[Scheduler] Error scanning wallet ${address.slice(0, 8)}...:`, err);
+  }
+}
+
+async function pingHeartbeat(): Promise<void> {
+  const url = Bun.env.UPTIME_HEARTBEAT_URL;
+  if (!url) return;
+  try {
+    await fetch(url);
+    console.log("[Scheduler] Heartbeat ping sent");
+  } catch (err) {
+    console.error("[Scheduler] Heartbeat ping failed:", err);
   }
 }
 
 async function runScheduledScans(): Promise<void> {
   const db = getDb();
 
-  type WalletRow = { address: string; telegram_chat_id: string };
+  type WalletRow = { address: string; telegram_chat_id: string; email_address: string | null };
 
   const wallets = db
     .query(
-      `SELECT address, telegram_chat_id FROM wallets
+      `SELECT address, telegram_chat_id, email_address FROM wallets
        WHERE telegram_chat_id IS NOT NULL AND guard_enabled = 1`
     )
     .all() as WalletRow[];
@@ -103,8 +117,11 @@ async function runScheduledScans(): Promise<void> {
   console.log(`[Scheduler] Scanning ${wallets.length} registered wallet(s)...`);
 
   for (const wallet of wallets) {
-    // Sequential with per-wallet error isolation
-    await scanRegisteredWallet(wallet.address, wallet.telegram_chat_id);
+    await scanRegisteredWallet(
+      wallet.address,
+      wallet.telegram_chat_id,
+      wallet.email_address ?? undefined
+    );
   }
 }
 
@@ -138,6 +155,7 @@ export function startScheduler(): void {
     runScheduledScans().catch((err) => {
       console.error("[Scheduler] Unexpected error in tick:", err);
     });
+    pingHeartbeat().catch(() => {});
   }, SCAN_INTERVAL_MS);
 
   // Daily database backup
@@ -147,4 +165,7 @@ export function startScheduler(): void {
       console.error("[Scheduler] Backup error:", err);
     });
   }, BACKUP_INTERVAL_MS);
+
+  // Initial heartbeat ping on startup
+  pingHeartbeat().catch(() => {});
 }

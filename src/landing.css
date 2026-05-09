@@ -1325,6 +1325,51 @@ section { position: relative; z-index: 1; }
   white-space: nowrap;
 }
 
+/* ─── WS Live Badge ──────────────────────────────────────────────────────────── */
+.ws-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 100px;
+  background: rgba(0, 229, 107, 0.07);
+  border: 1px solid rgba(0, 229, 107, 0.2);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.ws-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: blink 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* ─── Scan meta row ──────────────────────────────────────────────────────────── */
+.scan-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.btn-dashboard {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  padding: 4px 12px;
+  border: 1px solid rgba(0, 229, 107, 0.3);
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background var(--t-fast);
+}
+.btn-dashboard:hover { background: rgba(0, 229, 107, 0.07); }
+
 /* ─── Hero Image ─────────────────────────────────────────────────────────────── */
 .hero-image-wrap {
   display: flex;

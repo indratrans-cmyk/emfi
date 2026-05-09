@@ -6,11 +6,17 @@ import { handleStats } from "./routes/stats.ts";
 import { handleRecentAlerts } from "./routes/alerts.ts";
 import { handleConfig } from "./routes/config.ts";
 import { handleGuardHistory } from "./routes/history.ts";
+import { handleBlacklist } from "./routes/blacklist.ts";
+import { handleGenerateApiKey, handleListApiKeys, validateApiKey } from "./routes/apikeys.ts";
+import { handleDashboardData } from "./routes/dashboardApi.ts";
 import { checkScanRateLimit, checkDefaultRateLimit } from "./middleware/rateLimit.ts";
-import { getDb } from "./db/database.ts";
+import { getDb, setWalletEmail } from "./db/database.ts";
 import { startScheduler } from "./services/scheduler.ts";
+import { subscribe, unsubscribe } from "./services/pubsub.ts";
 import type { TelegramUpdate } from "./types/index.ts";
-import landing from "./landing.html";
+import type { ServerWebSocket } from "bun";
+import landing   from "./landing.html";
+import dashboard from "./dashboard.html";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 
@@ -233,10 +239,134 @@ const DOCS_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const server = Bun.serve({
+// ─── Changelog HTML ───────────────────────────────────────────────────────────
+const CHANGELOG_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Changelog — EmeraldFi</title>
+  <style>
+    :root{--bg:#030806;--surface:#0c1810;--border:#1a3325;--text:#ddeee5;--muted:#6a9478;--primary:#00e56b;--warning:#ffb230}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;line-height:1.7;padding:2rem}
+    nav{display:flex;align-items:center;justify-content:space-between;max-width:720px;margin:0 auto 2.5rem;padding-bottom:1rem;border-bottom:1px solid var(--border)}
+    h1{font-size:1.6rem;color:var(--primary)}
+    a{color:var(--primary);text-decoration:none}
+    .container{max-width:720px;margin:0 auto}
+    .entry{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.5rem;margin-bottom:1.25rem}
+    .entry-head{display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem;flex-wrap:wrap}
+    .version{font-weight:700;font-size:1rem;color:var(--text)}
+    .date{font-size:.8rem;color:var(--muted);font-family:monospace}
+    .tag{padding:2px 9px;border-radius:100px;font-size:.72rem;font-weight:600}
+    .tag-feature{background:rgba(0,229,107,.12);color:var(--primary)}
+    .tag-fix{background:rgba(255,178,48,.12);color:var(--warning)}
+    ul{padding-left:1.25rem;color:var(--muted);font-size:.9rem}
+    ul li{margin-bottom:.3rem}
+    ul li strong{color:var(--text)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <h1>EmeraldFi Changelog</h1>
+      <a href="/">← Back to Home</a>
+    </nav>
+
+    <div class="entry">
+      <div class="entry-head">
+        <span class="version">v1.3.0</span>
+        <span class="date">2025-05-09</span>
+        <span class="tag tag-feature">Feature</span>
+      </div>
+      <ul>
+        <li><strong>Wallet Dashboard</strong> — Real-time monitoring page at /dashboard with alert history</li>
+        <li><strong>WebSocket</strong> — Live scan results pushed to subscribed clients</li>
+        <li><strong>Email Alerts</strong> — Receive critical alerts via email (add via /api/wallet/email)</li>
+        <li><strong>Token Blacklist API</strong> — Public /api/blacklist of high-risk tokens from community reports</li>
+        <li><strong>API Keys</strong> — Generate personal keys at /api/keys/generate?wallet=&lt;addr&gt;</li>
+        <li><strong>Scan Queue</strong> — Concurrent scan protection (max 3 simultaneous)</li>
+        <li><strong>/register command</strong> — Telegram onboarding with step-by-step wallet linking</li>
+        <li><strong>Uptime Ping</strong> — /ping endpoint for UptimeRobot / BetterStack monitoring</li>
+        <li><strong>Changelog</strong> — This page</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <div class="entry-head">
+        <span class="version">v1.2.0</span>
+        <span class="date">2025-05-08</span>
+        <span class="tag tag-feature">Feature</span>
+      </div>
+      <ul>
+        <li><strong>HiveLoss Form</strong> — Submit anonymous loss reports directly from the landing page</li>
+        <li><strong>Share to X</strong> — Share scan results to Twitter/X with one click</li>
+        <li><strong>Database Backup</strong> — Daily automated backups, keeps last 7 days</li>
+        <li><strong>PM2 Log Rotation</strong> — 10 MB max log size, 7-day retention</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <div class="entry-head">
+        <span class="version">v1.1.0</span>
+        <span class="date">2025-05-07</span>
+        <span class="tag tag-feature">Feature</span>
+      </div>
+      <ul>
+        <li><strong>Rate Limiting</strong> — Sliding window per-IP rate limiter</li>
+        <li><strong>Input Validation</strong> — Solana base58 address validation middleware</li>
+        <li><strong>In-memory Cache</strong> — TTL cache for stats, alerts, and scan results</li>
+        <li><strong>Real Stats API</strong> — /api/stats returns live DB counts</li>
+        <li><strong>Telegram Scheduler</strong> — Hourly automated wallet monitoring with alerts</li>
+        <li><strong>Security Headers</strong> — X-Frame-Options, CSP, XSS protection</li>
+        <li><strong>CORS</strong> — Configurable origin policy</li>
+        <li><strong>SEO</strong> — robots.txt, sitemap.xml, full meta tags</li>
+        <li><strong>Favicon</strong> — EmeraldFi logo as browser icon</li>
+        <li><strong>API Docs</strong> — /docs page with all endpoints</li>
+        <li><strong>404 Page</strong> — Branded HTML 404 for browser requests</li>
+        <li><strong>Bot Commands Menu</strong> — Telegram /setMyCommands registered</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <div class="entry-head">
+        <span class="version">v1.0.0</span>
+        <span class="date">2025-05-06</span>
+        <span class="tag tag-feature">Launch</span>
+      </div>
+      <ul>
+        <li><strong>EmeraldGuard</strong> — 8 behavioral pattern detection engine</li>
+        <li><strong>HiveLoss</strong> — Community anonymous loss reporting & intelligence</li>
+        <li><strong>Telegram Bot</strong> — /guard, /hiveloss, /token, /patterns commands</li>
+        <li><strong>Groq AI</strong> — AI-generated trading insight on scan results</li>
+        <li><strong>Helius API</strong> — Real Solana transaction fetching</li>
+        <li><strong>SQLite DB</strong> — WAL mode with full schema</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>`;
+
+type WsData = { wallet: string };
+
+const server = Bun.serve<WsData>({
   port: PORT,
   routes: {
-    "/": landing,
+    "/":          landing,
+    "/dashboard": dashboard,
+  },
+  websocket: {
+    open(ws) {
+      const wallet = ws.data?.wallet;
+      if (wallet) {
+        subscribe(ws as ServerWebSocket<{ wallet: string }>, wallet);
+        ws.send(JSON.stringify({ type: "connected", wallet, timestamp: Date.now() }));
+      }
+    },
+    close(ws) {
+      unsubscribe(ws as ServerWebSocket<{ wallet: string }>);
+    },
+    message(_ws, _msg) { /* client messages ignored */ },
   },
   async fetch(req) {
     const url    = new URL(req.url);
@@ -245,6 +375,13 @@ const server = Bun.serve({
 
     if (method === "OPTIONS") {
       return secureHeaders(new Response(null, { status: 204 }), true);
+    }
+
+    // ─── WebSocket Upgrade ────────────────────────────────────────────────────
+    if (path === "/ws") {
+      const wallet = url.searchParams.get("address") ?? "";
+      if (server.upgrade(req, { data: { wallet } })) return undefined as unknown as Response;
+      return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
     // ─── Static Assets ────────────────────────────────────────────────────────
@@ -392,33 +529,90 @@ const server = Bun.serve({
       return secureHeaders(handleTokenRisk(req));
     }
 
+    // ─── Token Blacklist ──────────────────────────────────────────────────────
+    if (path === "/api/blacklist" && method === "GET") {
+      return secureHeaders(handleBlacklist(req), true);
+    }
+
+    // ─── API Keys ─────────────────────────────────────────────────────────────
+    if (path === "/api/keys/generate" && method === "GET") {
+      const rl = checkDefaultRateLimit(req);
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(handleGenerateApiKey(req));
+    }
+    if (path === "/api/keys" && method === "GET") {
+      const rl = checkDefaultRateLimit(req);
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(handleListApiKeys(req));
+    }
+
+    // ─── Dashboard API ────────────────────────────────────────────────────────
+    if (path === "/api/dashboard" && method === "GET") {
+      const rl = checkDefaultRateLimit(req);
+      if (rl) return secureHeaders(rl);
+      return secureHeaders(handleDashboardData(req));
+    }
+
+    // ─── Email subscription ───────────────────────────────────────────────────
+    if (path === "/api/wallet/email" && method === "POST") {
+      const rl = checkDefaultRateLimit(req);
+      if (rl) return secureHeaders(rl);
+      try {
+        const body = await req.json() as { walletAddress?: string; email?: string };
+        const { walletAddress, email } = body;
+        if (!walletAddress || !email || !email.includes("@")) {
+          return secureHeaders(new Response(
+            JSON.stringify({ success: false, error: "walletAddress and email required" }),
+            { status: 400, headers: { "Content-Type": "application/json" } }
+          ));
+        }
+        setWalletEmail(walletAddress, email);
+        return secureHeaders(new Response(
+          JSON.stringify({ success: true, data: { message: "Email registered for alerts" }, timestamp: Date.now() }),
+          { headers: { "Content-Type": "application/json" } }
+        ));
+      } catch {
+        return secureHeaders(new Response(
+          JSON.stringify({ success: false, error: "Invalid request body" }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        ));
+      }
+    }
+
+    // ─── Uptime Ping ──────────────────────────────────────────────────────────
+    if (path === "/ping" && method === "GET") {
+      return new Response("pong", {
+        headers: { "Content-Type": "text/plain", "Cache-Control": "no-cache" },
+      });
+    }
+
+    // ─── Changelog ───────────────────────────────────────────────────────────
+    if (path === "/changelog" && method === "GET") {
+      return new Response(CHANGELOG_HTML, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
     return notFound(req);
   },
 });
 
 console.log(`
 ╔══════════════════════════════════════════╗
-║          EmeraldFi Backend v1.1          ║
+║          EmeraldFi Backend v1.3          ║
 ║                                          ║
 ║  🛡️  EmeraldGuard — Pre-disaster AI     ║
 ║  🐝  HiveLoss — Collective shield        ║
+║  📊  Dashboard — Real-time monitoring    ║
 ║                                          ║
 ║  Running on port ${PORT}                  ║
 ╚══════════════════════════════════════════╝
 
-Endpoints:
-  GET  /health
-  GET  /docs
-  GET  /api/stats
-  GET  /api/config
-  GET  /api/alerts/recent
-  GET  /api/wallet?address=<addr>
-  POST /api/wallet/register
-  GET  /api/guard/scan?address=<addr>
-  GET  /api/guard/patterns
-  GET  /api/guard/history?address=<addr>
-  GET  /api/hiveloss
-  POST /api/hiveloss/submit
-  GET  /api/hiveloss/token?token=<addr>
-  POST /webhook/telegram
+Pages:      /  /dashboard  /docs  /changelog
+Guard:      GET  /api/guard/scan  /api/guard/patterns  /api/guard/history
+HiveLoss:   GET  /api/hiveloss  /api/hiveloss/token  |  POST /api/hiveloss/submit
+Wallet:     GET  /api/wallet  |  POST /api/wallet/register  /api/wallet/email
+New:        GET  /api/blacklist  /api/dashboard  /api/keys  /api/keys/generate
+System:     GET  /health  /ping  /api/stats  /api/config  /api/alerts/recent
+WS:         ws://localhost:${PORT}/ws?address=<addr>
 `);

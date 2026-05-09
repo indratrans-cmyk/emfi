@@ -23,9 +23,24 @@ function initSchema() {
       address TEXT UNIQUE NOT NULL,
       telegram_user_id TEXT,
       telegram_chat_id TEXT,
+      email_address TEXT,
       guard_enabled INTEGER DEFAULT 1,
       hiveloss_opted_in INTEGER DEFAULT 0,
       registered_at INTEGER DEFAULT (unixepoch())
+    )
+  `);
+
+  try { d.run(`ALTER TABLE wallets ADD COLUMN email_address TEXT`); } catch { /* column already exists */ }
+
+  d.run(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT UNIQUE NOT NULL,
+      wallet_address TEXT,
+      telegram_user_id TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      last_used INTEGER,
+      request_count INTEGER DEFAULT 0
     )
   `);
 
@@ -92,6 +107,7 @@ function initSchema() {
   d.run(`CREATE INDEX IF NOT EXISTS idx_loss_reports_wallet ON loss_reports(wallet_hash)`);
   d.run(`CREATE INDEX IF NOT EXISTS idx_tx_cache_wallet ON tx_cache(wallet_address)`);
   d.run(`CREATE INDEX IF NOT EXISTS idx_guard_alerts_wallet ON guard_alerts(wallet_address)`);
+  d.run(`CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key)`);
 }
 
 export function registerWallet(
@@ -104,6 +120,14 @@ export function registerWallet(
     `INSERT OR IGNORE INTO wallets (address, telegram_user_id, telegram_chat_id)
      VALUES (?, ?, ?)`,
     [address, telegramUserId ?? null, telegramChatId ?? null]
+  );
+}
+
+export function setWalletEmail(address: string, email: string): void {
+  getDb().run(
+    `INSERT INTO wallets (address, email_address) VALUES (?, ?)
+     ON CONFLICT(address) DO UPDATE SET email_address = excluded.email_address`,
+    [address, email]
   );
 }
 

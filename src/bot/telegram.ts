@@ -88,6 +88,7 @@ export async function setMyCommands(): Promise<void> {
 
   const commands = [
     { command: "start",    description: "Welcome & quick guide" },
+    { command: "register", description: "Link wallet for monitoring: /register <address>" },
     { command: "guard",    description: "Scan wallet: /guard <address>" },
     { command: "hiveloss", description: "Community loss intelligence" },
     { command: "patterns", description: "View all 8 risk patterns" },
@@ -113,23 +114,53 @@ export async function setMyCommands(): Promise<void> {
 // ─── Command Handlers ─────────────────────────────────────────────────────────
 
 async function handleStart(chatId: number, userId: string, name: string): Promise<void> {
+  const existing = getWalletByTelegramId(userId);
+  const walletLine = existing
+    ? `\n✅ *Your wallet is registered:* \`${(existing["address"] as string).slice(0, 8)}...\`\n`
+    : `\n📌 *Step 1:* Register your wallet\n/register \`<your_wallet_address>\`\n`;
+
   await sendMessage(
     chatId,
     `🟢 *Welcome to EmeraldFi, ${name}!*
 
-EmeraldFi protects your Solana wallet from catastrophic losses using two AI shields:
+EmeraldFi protects your Solana wallet from catastrophic losses before they happen.
 
-🛡️ *EmeraldGuard* — Detects your dangerous behavioral patterns BEFORE you lose
-🐝 *HiveLoss* — Collective intelligence from thousands of real losses
+🛡️ *EmeraldGuard* — AI detects 8 dangerous behavioral patterns BEFORE you lose
+🐝 *HiveLoss* — Community intelligence from thousands of real losses
+${walletLine}
+*Quick Start:*
+/register \`<wallet>\` — Link wallet for hourly monitoring
+/guard \`<wallet>\` — Run instant scan now
+/hiveloss — View community intelligence
+/patterns — See all 8 risk patterns
+/token \`<address>\` — Check if a token is risky
 
-*Commands:*
-/guard \`<wallet>\` — Scan your wallet for pre-disaster patterns
-/hiveloss — View community loss intelligence
-/token \`<address>\` — Check if a token is high risk
-/patterns — See all 8 behavioral patterns we detect
-/help — Show this menu
+*🔒 Privacy: Your wallet address is always hashed. Never stored raw.*
 
-*Your data is always anonymous. We hash your wallet address.*`
+Dashboard: https://emeraldfinance.fun`
+  );
+}
+
+async function handleRegister(chatId: number, userId: string, args: string[]): Promise<void> {
+  const address = args[0];
+  if (!address) {
+    await sendMessage(
+      chatId,
+      `Usage: /register \`<wallet_address>\`\n\nThis links your Solana wallet to Telegram for *hourly monitoring*.\nYou'll get alerts when critical patterns are detected.`
+    );
+    return;
+  }
+  if (!isValidSolanaAddress(address)) {
+    await sendMessage(chatId, "❌ Invalid Solana wallet address. Please check and try again.");
+    return;
+  }
+  registerWallet(address, userId, String(chatId));
+  await sendMessage(
+    chatId,
+    `✅ *Wallet registered for monitoring!*\n\n` +
+      `Wallet: \`${address.slice(0, 8)}...${address.slice(-4)}\`\n\n` +
+      `EmeraldGuard will scan your wallet every hour and alert you if *critical or high-risk* patterns are detected.\n\n` +
+      `Run a scan now: /guard \`${address}\``
   );
 }
 
@@ -327,6 +358,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     case "/start":
     case "/help":
       await handleStart(chatId, userId, name);
+      break;
+    case "/register":
+      await handleRegister(chatId, userId, args);
       break;
     case "/guard":
       await handleGuard(chatId, userId, args);

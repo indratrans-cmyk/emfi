@@ -5,24 +5,34 @@ import {
 } from "../services/solana.ts";
 import { scanWallet, getAllPatterns } from "../services/emeraldguard.ts";
 import { getCachedTxs } from "../db/database.ts";
+import { scanQueue } from "../services/queue.ts";
+import { broadcast } from "../services/pubsub.ts";
 import type { ApiResponse, GuardReport, BehaviorPattern } from "../types/index.ts";
 
 export async function handleGuardScan(req: Request): Promise<Response> {
-  const url = new URL(req.url);
+  const url     = new URL(req.url);
   const address = url.searchParams.get("address");
-  const useAI = url.searchParams.get("ai") !== "false";
+  const useAI   = url.searchParams.get("ai") !== "false";
 
   if (!address || !isValidSolanaAddress(address)) {
     return jsonError("Valid Solana wallet address required", 400);
   }
 
-  try {
-    const [balance, txs] = await Promise.all([
-      getWalletBalance(address),
-      getHeliusTransactions(address, 50),
-    ]);
+  if (scanQueue.size >= 10) {
+    return jsonError("Scan queue is full. Please try again shortly.", 429);
+  }
 
-    const report = await scanWallet(address, txs, balance, useAI);
+  try {
+    const report = await scanQueue.add(async () => {
+      const [balance, txs] = await Promise.all([
+        getWalletBalance(address),
+        getHeliusTransactions(address, 50),
+      ]);
+      return scanWallet(address, txs, balance, useAI);
+    });
+
+    // Push result to any WebSocket subscribers for this wallet
+    broadcast(address, { type: "scan_complete", data: report, timestamp: Date.now() });
 
     return json<ApiResponse<GuardReport>>({
       success: true,

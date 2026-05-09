@@ -584,6 +584,7 @@ function Landing() {
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState<GuardReport | null>(null);
   const [error,   setError]   = useState<string | null>(null);
+  const [wsLive,  setWsLive]  = useState(false);
 
   // Real stats from API
   const [stats, setStats] = useState<Stats | null>(null);
@@ -630,6 +631,24 @@ function Landing() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // WebSocket: subscribe to live updates after scanning a wallet
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const connectWs = useCallback((walletAddr: string) => {
+    wsRef.current?.close();
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws?address=${walletAddr}`);
+    ws.onopen  = () => setWsLive(true);
+    ws.onclose = () => setWsLive(false);
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data) as { type: string; data?: GuardReport };
+        if (msg.type === "scan_complete" && msg.data) setResult(msg.data);
+      } catch { /* ignore */ }
+    };
+    wsRef.current = ws;
+  }, []);
+
   const scan = useCallback(async () => {
     const a = addr.trim();
     if (!a || loading) return;
@@ -639,14 +658,18 @@ function Landing() {
     try {
       const res  = await fetch(`/api/guard/scan?address=${encodeURIComponent(a)}&ai=false`);
       const data = await res.json() as { success: boolean; data?: GuardReport; error?: string };
-      if (data.success && data.data) setResult(data.data);
-      else setError(data.error ?? "Scan failed. Check the address and try again.");
+      if (data.success && data.data) {
+        setResult(data.data);
+        connectWs(a);
+      } else {
+        setError(data.error ?? "Scan failed. Check the address and try again.");
+      }
     } catch {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [addr, loading]);
+  }, [addr, loading, connectWs]);
 
   // Hero stat display values (use real data when available)
   const heroStats = stats
@@ -1032,8 +1055,25 @@ function Landing() {
               </button>
             </div>
             {error && <div className="scan-error">⚠ {error}</div>}
-            {result && <ScanResult r={result} />}
-            <p className="scan-note">🔐 Your address is never stored · Read-only public on-chain analysis</p>
+            {result && (
+              <>
+                {wsLive && (
+                  <div className="ws-live-badge">
+                    <span className="ws-dot" />
+                    Live monitoring active — you'll be notified of changes
+                  </div>
+                )}
+                <ScanResult r={result} />
+              </>
+            )}
+            <div className="scan-meta-row">
+              <p className="scan-note">🔐 Your address is never stored · Read-only public on-chain analysis</p>
+              {addr.trim() && (
+                <a href={`/dashboard?address=${encodeURIComponent(addr.trim())}`} className="btn-dashboard" target="_blank" rel="noopener noreferrer">
+                  View Dashboard →
+                </a>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -1077,9 +1117,10 @@ function Landing() {
             <div>
               <div className="footer-col-title">Resources</div>
               <ul className="footer-links">
+                <li><a href="/dashboard">Dashboard</a></li>
+                <li><a href="/changelog">Changelog</a></li>
+                <li><a href="/api/blacklist">Token Blacklist</a></li>
                 <li><a href="/health">API Health</a></li>
-                <li><a href="/api/guard/patterns">Guard Patterns</a></li>
-                <li><a href="/api/hiveloss">HiveLoss Stats</a></li>
                 <li><a href="/docs">API Docs</a></li>
                 <li>
                   <a href={`https://t.me/${botUsername}`} target="_blank" rel="noopener noreferrer">
