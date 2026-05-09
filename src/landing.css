@@ -1196,3 +1196,64 @@ section { position: relative; z-index: 1; }
   .stats-grid    { grid-template-columns: 1fr 1fr; }
   .footer-inner  { grid-template-columns: 1fr; }
 }
+
+/* ─── Telegram Button ────────────────────────────────────────────────────────── */
+.btn-telegram {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 22px;
+  border: 1px solid #2CA5E0;
+  color: #2CA5E0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius);
+  background: rgba(44, 165, 224, 0.07);
+  transition: border-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn-telegram:hover {
+  border-color: #54b9e8;
+  color: #54b9e8;
+  background: rgba(44, 165, 224, 0.13);
+  transform: translateY(-2px);
+}
+
+/* ─── Scan History ───────────────────────────────────────────────────────────── */
+.scan-history {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.scan-history-title {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 0.75rem;
+}
+.scan-history-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.scan-history-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  background: rgba(0, 229, 107, 0.03);
+}
+.scan-history-row .alert-pattern { flex: 1; }
+.scan-history-row .alert-time {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}

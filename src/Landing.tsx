@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "./ErrorBoundary";
 import "./landing.css";
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -74,6 +75,13 @@ function BoltIcon() {
     </svg>
   );
 }
+function TelegramIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.851l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.978.708z"/>
+    </svg>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DetectedSignal {
@@ -92,6 +100,29 @@ interface GuardReport {
   detectedSignals: DetectedSignal[];
   shouldPause: boolean;
   aiInsight?: string;
+}
+
+interface LiveAlert {
+  walletHash: string;
+  patternName: string;
+  severity: string;
+  createdAt: number;
+}
+
+interface Stats {
+  walletsScanned: number;
+  lossReports: number;
+  patternsDetected: number;
+  uptime: number;
+}
+
+interface ScanHistoryItem {
+  patternName: string;
+  severity: string;
+  lossProbability: number;
+  details: string;
+  recommendation: string;
+  createdAt: number;
 }
 
 // ─── Static Data ──────────────────────────────────────────────────────────────
@@ -123,16 +154,6 @@ const FAQ_ITEMS = [
     a: "After a loss, submit an anonymous report via the API (POST /api/hiveloss/submit) or the Telegram /report command. Your experience directly improves community-wide protection." },
   { q: "Is EmeraldFi financial advice?",
     a: "No. EmeraldFi is a behavioral analysis tool, not a financial advisor. Pattern alerts are based on historical statistical analysis. Always conduct your own research and trade responsibly." },
-];
-
-const MOCK_ALERTS = [
-  { addr: "9WzD...tAWWM", pattern: "FOMO Spiral",             sev: "high",     time: "2m ago" },
-  { addr: "7xKX...gAsU",  pattern: "New Token Rush",          sev: "critical", time: "5m ago" },
-  { addr: "DYw8...NSKH",  pattern: "Loss Chaser",             sev: "critical", time: "11m ago" },
-  { addr: "HN4k...qT9a",  pattern: "Night FOMO",              sev: "high",     time: "18m ago" },
-  { addr: "3Fku...mP2z",  pattern: "Portfolio Concentration", sev: "high",     time: "24m ago" },
-  { addr: "6YtR...nL8q",  pattern: "Degen Acceleration",      sev: "high",     time: "31m ago" },
-  { addr: "Bxm2...kW5s",  pattern: "Panic Averaging",         sev: "critical", time: "38m ago" },
 ];
 
 const TERMINAL_LINES: Array<{ p: string; t: string; c?: string }> = [
@@ -180,7 +201,7 @@ function useReveal(threshold = 0.15) {
   const [v, set] = useState(false);
   useEffect(() => {
     const obs = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) { set(true); obs.disconnect(); }
+      if (e?.isIntersecting) { set(true); obs.disconnect(); }
     }, { threshold });
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
@@ -261,6 +282,21 @@ function riskColor(p: number) {
   return "#88cc44";
 }
 
+function severityColor(sev: string): string {
+  if (sev === "critical") return "#ff4444";
+  if (sev === "high")     return "#ff8c00";
+  if (sev === "medium")   return "#ffb230";
+  return "#88cc44";
+}
+
+function timeAgo(unixSecs: number): string {
+  const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff < 60)   return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 // ─── FAQ Item ─────────────────────────────────────────────────────────────────
 function FAQItem({ q, a, open, toggle }: { q: string; a: string; open: boolean; toggle: () => void }) {
   return (
@@ -271,6 +307,48 @@ function FAQItem({ q, a, open, toggle }: { q: string; a: string; open: boolean; 
       </button>
       <div className={`faq-a${open ? " open" : ""}`}>
         <div className="faq-a-inner">{a}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Scan History ─────────────────────────────────────────────────────────────
+function ScanHistory({ address }: { address: string }) {
+  const [history, setHistory] = useState<ScanHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res  = await fetch(`/api/guard/history?address=${encodeURIComponent(address)}`);
+        const data = await res.json() as { success: boolean; data?: ScanHistoryItem[] };
+        if (!cancelled && data.success && data.data) setHistory(data.data);
+      } catch {
+        // Silently ignore — not a critical feature
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [address]);
+
+  if (loading || history.length === 0) return null;
+
+  return (
+    <div className="scan-history">
+      <div className="scan-history-title">Recent Scans for this Wallet</div>
+      <div className="scan-history-list">
+        {history.map((item, i) => (
+          <div key={i} className="scan-history-row">
+            <div className="alert-sev" style={{ background: severityColor(item.severity), width: 8, height: 8, borderRadius: "50%", flexShrink: 0 }} />
+            <span className="alert-pattern">{item.patternName}</span>
+            <span style={{ color: severityColor(item.severity), fontSize: "0.72rem", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+              {(item.lossProbability * 100).toFixed(0)}%
+            </span>
+            <span className="alert-time">{timeAgo(item.createdAt)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -320,6 +398,7 @@ function ScanResult({ r }: { r: GuardReport }) {
           )}
         </>
       )}
+      <ScanHistory address={r.walletAddress} />
     </div>
   );
 }
@@ -342,6 +421,64 @@ const MARQUEE_ITEMS = [
   "ANONYMOUS & PRIVATE", "◆", "FREE WALLET SCAN", "◆",
 ];
 
+// ─── Live Alert Feed ──────────────────────────────────────────────────────────
+function AlertFeed() {
+  const [alerts, setAlerts] = useState<LiveAlert[]>([]);
+
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const res  = await fetch("/api/alerts/recent");
+      const data = await res.json() as { success: boolean; data?: LiveAlert[] };
+      if (data.success && data.data && data.data.length > 0) {
+        setAlerts(data.data);
+      }
+    } catch {
+      // keep showing whatever we had
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAlerts();
+    const id = setInterval(fetchAlerts, 30_000);
+    return () => clearInterval(id);
+  }, [fetchAlerts]);
+
+  // Fall back to static mock when DB has no data yet
+  const MOCK_ALERTS: LiveAlert[] = [
+    { walletHash: "9WzD...AWWM", patternName: "FOMO Spiral",             severity: "high",     createdAt: Math.floor(Date.now() / 1000) - 120  },
+    { walletHash: "7xKX...gAsU", patternName: "New Token Rush",          severity: "critical", createdAt: Math.floor(Date.now() / 1000) - 300  },
+    { walletHash: "DYw8...NSKH", patternName: "Loss Chaser",             severity: "critical", createdAt: Math.floor(Date.now() / 1000) - 660  },
+    { walletHash: "HN4k...qT9a", patternName: "Night FOMO",              severity: "high",     createdAt: Math.floor(Date.now() / 1000) - 1080 },
+    { walletHash: "3Fku...mP2z", patternName: "Portfolio Concentration", severity: "high",     createdAt: Math.floor(Date.now() / 1000) - 1440 },
+    { walletHash: "6YtR...nL8q", patternName: "Degen Acceleration",      severity: "high",     createdAt: Math.floor(Date.now() / 1000) - 1860 },
+    { walletHash: "Bxm2...kW5s", patternName: "Panic Averaging",         severity: "critical", createdAt: Math.floor(Date.now() / 1000) - 2280 },
+  ];
+
+  const displayAlerts = alerts.length > 0 ? alerts : MOCK_ALERTS;
+
+  return (
+    <div className="alert-feed">
+      <div className="alert-feed-head">
+        <div className="live-dot" />
+        <span className="alert-feed-title">Live Alert Feed — Real-Time Pattern Detections</span>
+      </div>
+      <div className="alert-items">
+        {displayAlerts.map((a, i) => (
+          <div key={i} className="alert-row">
+            <div
+              className={`alert-sev ${a.severity}`}
+              style={alerts.length > 0 ? { background: severityColor(a.severity) } : undefined}
+            />
+            <span className="alert-addr">{a.walletHash}</span>
+            <span className="alert-pattern">{a.patternName}</span>
+            <span className="alert-time">{timeAgo(a.createdAt)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 function Landing() {
   const scrolled   = useScrolled();
@@ -351,13 +488,46 @@ function Landing() {
   const [result,  setResult]  = useState<GuardReport | null>(null);
   const [error,   setError]   = useState<string | null>(null);
 
+  // Real stats from API
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  // Telegram bot username from API
+  const [botUsername, setBotUsername] = useState("EmeraldFiBot");
+
   const { ref: statsRef, visible: statsVis } = useReveal();
   const { ref: pattRef,  visible: pattVis  } = useReveal();
 
-  const c1 = useCountUp(12400,  1800, statsVis);
-  const c2 = useCountUp(8,      1200, statsVis);
-  const c3 = useCountUp(73,     1500, statsVis);
-  const c4 = useCountUp(99,     1300, statsVis);
+  // countUp targets: use real stats when available, otherwise static fallbacks
+  const c1 = useCountUp(stats?.walletsScanned ?? 12400, 1800, statsVis);
+  const c2 = useCountUp(8,                              1200, statsVis);
+  const c3 = useCountUp(73,                             1500, statsVis);
+  const c4 = useCountUp(99,                             1300, statsVis);
+
+  // Fetch real stats on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch("/api/stats");
+        const data = await res.json() as { success: boolean; data?: Stats };
+        if (data.success && data.data) setStats(data.data);
+      } catch {
+        // keep defaults
+      }
+    })();
+  }, []);
+
+  // Fetch bot config on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch("/api/config");
+        const data = await res.json() as { success: boolean; data?: { botUsername: string } };
+        if (data.success && data.data?.botUsername) setBotUsername(data.data.botUsername);
+      } catch {
+        // keep default
+      }
+    })();
+  }, []);
 
   const go = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -381,6 +551,21 @@ function Landing() {
     }
   }, [addr, loading]);
 
+  // Hero stat display values (use real data when available)
+  const heroStats = stats
+    ? [
+        { n: stats.walletsScanned.toLocaleString() + "+", l: "Wallets Analyzed" },
+        { n: "8",                                          l: "Patterns Detected" },
+        { n: "82%+",                                       l: "Empirical Accuracy" },
+        { n: "Free",                                       l: "No Wallet Connect"  },
+      ]
+    : [
+        { n: "85%",  l: "Highest Risk Pattern" },
+        { n: "8",    l: "Patterns Detected"     },
+        { n: "82%+", l: "Empirical Accuracy"    },
+        { n: "Free", l: "No Wallet Connect"     },
+      ];
+
   return (
     <div>
       <div className="bg-grid" />
@@ -389,7 +574,7 @@ function Landing() {
       <nav className={`nav${scrolled ? " scrolled" : ""}`}>
         <Logo />
         <ul className="nav-links">
-          {[["problem","Problem"],["solution","Solution"],["proof","Proof"],["faq","FAQ"]].map(([id, label]) => (
+          {([ ["problem","Problem"],["solution","Solution"],["proof","Proof"],["faq","FAQ"] ] as [string, string][]).map(([id, label]) => (
             <li key={id}>
               <a href={`#${id}`} onClick={e => { e.preventDefault(); go(id); }}>{label}</a>
             </li>
@@ -427,14 +612,18 @@ function Landing() {
                 <button className="btn-outline" onClick={() => go("solution")}>
                   How It Works
                 </button>
+                <a
+                  className="btn-telegram"
+                  href={`https://t.me/${botUsername}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <TelegramIcon />
+                  Open Telegram Bot →
+                </a>
               </div>
               <div className="hero-stats">
-                {[
-                  { n: "85%",  l: "Highest Risk Pattern" },
-                  { n: "8",    l: "Patterns Detected" },
-                  { n: "82%+", l: "Empirical Accuracy" },
-                  { n: "Free", l: "No Wallet Connect" },
-                ].map(s => (
+                {heroStats.map(s => (
                   <div key={s.l}>
                     <div className="hero-stat-num">{s.n}</div>
                     <div className="hero-stat-label">{s.l}</div>
@@ -615,23 +804,8 @@ function Landing() {
             ))}
           </div>
 
-          {/* Alert feed */}
-          <div className="alert-feed">
-            <div className="alert-feed-head">
-              <div className="live-dot" />
-              <span className="alert-feed-title">Live Alert Feed — Real-Time Pattern Detections</span>
-            </div>
-            <div className="alert-items">
-              {MOCK_ALERTS.map((a, i) => (
-                <div key={i} className="alert-row">
-                  <div className={`alert-sev ${a.sev}`} />
-                  <span className="alert-addr">{a.addr}</span>
-                  <span className="alert-pattern">{a.pattern}</span>
-                  <span className="alert-time">{a.time}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Alert feed — live from DB */}
+          <AlertFeed />
         </div>
       </section>
 
@@ -743,7 +917,7 @@ function Landing() {
                 Behavioral risk protection for Solana traders. Detect dangerous patterns before they cost you everything.
               </p>
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
-                {["/health", "/api/guard/patterns", "/api/hiveloss"].map(path => (
+                {["/health", "/api/guard/patterns", "/api/hiveloss", "/docs"].map(path => (
                   <a key={path} href={path} className="footer-api-badge">
                     <span style={{ color: "var(--primary)", fontSize: "0.7rem" }}>GET</span>
                     {path}
@@ -775,6 +949,12 @@ function Landing() {
                 <li><a href="/health">API Health</a></li>
                 <li><a href="/api/guard/patterns">Guard Patterns</a></li>
                 <li><a href="/api/hiveloss">HiveLoss Stats</a></li>
+                <li><a href="/docs">API Docs</a></li>
+                <li>
+                  <a href={`https://t.me/${botUsername}`} target="_blank" rel="noopener noreferrer">
+                    Telegram Bot
+                  </a>
+                </li>
               </ul>
             </div>
           </div>
@@ -791,4 +971,8 @@ function Landing() {
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
 const root = createRoot(document.getElementById("root")!);
-root.render(<Landing />);
+root.render(
+  <ErrorBoundary>
+    <Landing />
+  </ErrorBoundary>
+);

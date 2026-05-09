@@ -5,7 +5,11 @@ import { getHeliusTransactions } from "../services/solana.ts";
 import { registerWallet, getWalletByTelegramId } from "../db/database.ts";
 import type { TelegramUpdate } from "../types/index.ts";
 
-const BASE_URL = `https://api.telegram.org/bot${process.env["TELEGRAM_BOT_TOKEN"]}`;
+const BASE_URL = `https://api.telegram.org/bot${Bun.env.TELEGRAM_BOT_TOKEN}`;
+
+// Secret token used to verify that webhook requests genuinely come from Telegram.
+// Set TELEGRAM_SECRET_TOKEN in your environment to enable verification.
+const WEBHOOK_SECRET = Bun.env.TELEGRAM_SECRET_TOKEN ?? "";
 
 // ─── Send Message ─────────────────────────────────────────────────────────────
 
@@ -36,17 +40,36 @@ async function sendTyping(chatId: number): Promise<void> {
 
 // ─── Set Webhook ──────────────────────────────────────────────────────────────
 
+/**
+ * Verifies the X-Telegram-Bot-Api-Secret-Token header.
+ * Returns a 401 Response when the token is missing or wrong, undefined when OK.
+ */
+export function verifyWebhookSecret(req: Request): Response | undefined {
+  if (!WEBHOOK_SECRET) return undefined; // verification disabled — no secret configured
+  const provided = req.headers.get("x-telegram-bot-api-secret-token") ?? "";
+  if (provided !== WEBHOOK_SECRET) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Unauthorized" }),
+      { status: 401, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  return undefined;
+}
+
 export async function setWebhook(): Promise<void> {
-  const webhookUrl = process.env["TELEGRAM_WEBHOOK_URL"];
+  const webhookUrl = Bun.env.TELEGRAM_WEBHOOK_URL;
   if (!webhookUrl) {
     console.warn("TELEGRAM_WEBHOOK_URL not set, skipping webhook registration");
     return;
   }
 
+  const body: Record<string, string> = { url: webhookUrl };
+  if (WEBHOOK_SECRET) body["secret_token"] = WEBHOOK_SECRET;
+
   const res = await fetch(`${BASE_URL}/setWebhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: webhookUrl }),
+    body: JSON.stringify(body),
   });
 
   const data = (await res.json()) as { ok: boolean; description?: string };
