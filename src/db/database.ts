@@ -104,6 +104,14 @@ function initSchema() {
     )
   `);
 
+  d.run(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at INTEGER DEFAULT (unixepoch())
+    )
+  `);
+
   d.run(`CREATE INDEX IF NOT EXISTS idx_loss_reports_wallet ON loss_reports(wallet_hash)`);
   d.run(`CREATE INDEX IF NOT EXISTS idx_tx_cache_wallet ON tx_cache(wallet_address)`);
   d.run(`CREATE INDEX IF NOT EXISTS idx_guard_alerts_wallet ON guard_alerts(wallet_address)`);
@@ -280,6 +288,20 @@ export function cacheTxs(
       tx.txTimestamp
     );
   }
+}
+
+export function getAppState(key: string): string | null {
+  type Row = { value: string };
+  const row = getDb().query("SELECT value FROM app_state WHERE key = ?").get(key) as Row | null;
+  return row?.value ?? null;
+}
+
+export function setAppState(key: string, value: string): void {
+  getDb().run(
+    `INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, unixepoch())
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`,
+    [key, value]
+  );
 }
 
 export function getCachedTxs(walletAddress: string, limit = 50) {

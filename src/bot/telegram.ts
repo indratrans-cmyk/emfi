@@ -194,14 +194,38 @@ export async function setMyCommands(): Promise<void> {
 // ─── Command Handlers ─────────────────────────────────────────────────────────
 
 async function handleStart(chatId: number, userId: string, name: string): Promise<void> {
-  const existing = getWalletByTelegramId(userId);
+  const existing   = getWalletByTelegramId(userId);
   const walletLine = existing
     ? `\n✅ <b>Registered wallet:</b> <code>${shortAddr(existing["address"] as string)}</code>`
     : `\n📌 Start with: <code>/register &lt;your_wallet&gt;</code>`;
 
+  const ca     = Bun.env.EMFI_TOKEN_ADDRESS?.trim();
+  const buyRow = ca
+    ? `\n\n🚀 <b>$EMFI is LIVE!</b> Use /ca for the contract address.`
+    : "";
+
+  // Build keyboard — add Buy button if CA is set
+  const kb: InlineKeyboard = ca
+    ? {
+        inline_keyboard: [
+          [
+            { text: "🔍 Scan Wallet",    url: `${SITE_URL}/#cta` },
+            { text: "📊 Dashboard",      url: `${SITE_URL}/dashboard` },
+          ],
+          [
+            { text: "🚀 Buy $EMFI",      url: `https://pump.fun/coin/${ca}` },
+            { text: "🐝 HiveLoss",       url: `${SITE_URL}/#hiveloss` },
+          ],
+          [
+            { text: "🌐 Website",        url: SITE_URL },
+          ],
+        ],
+      }
+    : KB_MAIN;
+
   await sendMessage(chatId, `\
 🟢 <b>Welcome to EmeraldFi, ${esc(name)}!</b>
-${walletLine}
+${walletLine}${buyRow}
 
 <pre>┌──────────────────────────────┐
 │  🛡  EmeraldGuard            │
@@ -216,11 +240,11 @@ ${walletLine}
 <b>Quick Commands</b>
 ▸ /register <code>wallet</code> — hourly monitoring
 ▸ /guard <code>wallet</code> — instant scan now
+▸ /ca — get $EMFI contract address
 ▸ /hiveloss — community stats
 ▸ /patterns — all 8 risk patterns
-▸ /token <code>address</code> — token risk check
 
-<i>🔒 Privacy: wallet addresses are hashed, never stored raw.</i>`, KB_MAIN);
+<i>🔒 Privacy: wallet addresses are hashed, never stored raw.</i>`, kb);
 }
 
 async function handleRegister(chatId: number, userId: string, args: string[]): Promise<void> {

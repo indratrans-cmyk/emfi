@@ -13,14 +13,15 @@ export interface PublicConfig {
 export function handleConfig(_req: Request): Response {
   let cfg = cache.get<PublicConfig>(CACHE_KEY);
   if (!cfg) {
-    const ca = Bun.env.EMFI_TOKEN_ADDRESS || null;
+    const ca = Bun.env.EMFI_TOKEN_ADDRESS?.trim() || null;
     cfg = {
       botUsername:  Bun.env.TELEGRAM_BOT_USERNAME ?? "EmeraldFiBot",
       tokenAddress: ca,
       tokenSymbol:  "$EMFI",
       buyUrl:       ca ? `https://pump.fun/coin/${ca}` : null,
     };
-    cache.set(CACHE_KEY, cfg, TTL.CONFIG);
+    // Short TTL when no CA yet (re-check every 2 min); long cache once CA is set
+    cache.set(CACHE_KEY, cfg, ca ? TTL.CONFIG : 2 * 60 * 1000);
   }
 
   return new Response(

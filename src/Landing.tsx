@@ -694,6 +694,17 @@ function Landing() {
         { n: "Free", l: "No Wallet Connect"     },
       ];
 
+  // Dynamic ticker: prepend $EMFI items when token is live
+  const tickerItems = tokenCA
+    ? [
+        { t: `$EMFI — NOW LIVE ON PUMP.FUN`, hi: true },
+        { t: "◆", hi: false },
+        { t: `CA: ${tokenCA.slice(0,8)}…${tokenCA.slice(-4)}`, hi: false },
+        { t: "◆", hi: false },
+        ...TICKER_DATA,
+      ]
+    : TICKER_DATA;
+
   return (
     <div>
       <div className="bg-grid" />
@@ -731,7 +742,7 @@ function Landing() {
             <div>
               <div className="hero-badge">
                 <span className="hero-badge-dot" />
-                Live on Solana Mainnet
+                {buyUrl ? "Now trading on pump.fun" : "Live on Solana Mainnet"}
               </div>
               <h1 className="hero-headline">
                 Stop<br />Trading<br /><em>Blind.</em>
@@ -786,7 +797,7 @@ function Landing() {
         {/* Ticker */}
         <div className="ticker">
           <div className="ticker-track">
-            {[...TICKER_DATA, ...TICKER_DATA].map((item, i) => (
+            {[...tickerItems, ...tickerItems].map((item, i) => (
               <span key={i} className={`ticker-item${item.hi ? " hi" : ""}`}>
                 <span className="ticker-dot" />
                 {item.t}
