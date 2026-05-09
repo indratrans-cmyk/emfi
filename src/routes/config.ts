@@ -5,13 +5,20 @@ const CACHE_KEY = "config:public";
 
 export interface PublicConfig {
   botUsername: string;
+  tokenAddress: string | null;
+  tokenSymbol: string;
+  buyUrl: string | null;
 }
 
 export function handleConfig(_req: Request): Response {
   let cfg = cache.get<PublicConfig>(CACHE_KEY);
   if (!cfg) {
+    const ca = Bun.env.EMFI_TOKEN_ADDRESS || null;
     cfg = {
-      botUsername: Bun.env.TELEGRAM_BOT_USERNAME ?? "EmeraldFiBot",
+      botUsername:  Bun.env.TELEGRAM_BOT_USERNAME ?? "EmeraldFiBot",
+      tokenAddress: ca,
+      tokenSymbol:  "$EMFI",
+      buyUrl:       ca ? `https://pump.fun/coin/${ca}` : null,
     };
     cache.set(CACHE_KEY, cfg, TTL.CONFIG);
   }

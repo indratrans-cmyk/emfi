@@ -592,6 +592,10 @@ function Landing() {
   // Telegram bot username from API
   const [botUsername, setBotUsername] = useState("EmeraldFiBot");
 
+  // Token CA from API (null = not launched yet)
+  const [tokenCA,  setTokenCA]  = useState<string | null>(null);
+  const [buyUrl,   setBuyUrl]   = useState<string | null>(null);
+
   const { ref: statsRef, visible: statsVis } = useReveal();
   const { ref: pattRef,  visible: pattVis  } = useReveal();
 
@@ -614,15 +618,19 @@ function Landing() {
     })();
   }, []);
 
-  // Fetch bot config on mount
+  // Fetch bot config + token CA on mount
   useEffect(() => {
     (async () => {
       try {
         const res  = await fetch("/api/config");
-        const data = await res.json() as { success: boolean; data?: { botUsername: string } };
-        if (data.success && data.data?.botUsername) setBotUsername(data.data.botUsername);
+        const data = await res.json() as { success: boolean; data?: { botUsername: string; tokenAddress: string | null; buyUrl: string | null } };
+        if (data.success && data.data) {
+          if (data.data.botUsername) setBotUsername(data.data.botUsername);
+          if (data.data.tokenAddress) setTokenCA(data.data.tokenAddress);
+          if (data.data.buyUrl)       setBuyUrl(data.data.buyUrl);
+        }
       } catch {
-        // keep default
+        // keep defaults
       }
     })();
   }, []);
@@ -700,9 +708,16 @@ function Landing() {
             </li>
           ))}
         </ul>
-        <button className="btn-primary" onClick={() => go("cta")}>
-          Free Scan →
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          {buyUrl && (
+            <a href={buyUrl} target="_blank" rel="noopener noreferrer" className="btn-buy-nav">
+              Buy $EMFI
+            </a>
+          )}
+          <button className="btn-primary" onClick={() => go("cta")}>
+            Free Scan →
+          </button>
+        </div>
       </nav>
 
       {/* ═══ HERO ═════════════════════════════════════════════════════════════ */}
@@ -741,6 +756,15 @@ function Landing() {
                   <TelegramIcon />
                   Open Telegram Bot →
                 </a>
+                {buyUrl && (
+                  <a href={buyUrl} target="_blank" rel="noopener noreferrer" className="btn-buy-hero">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
+                      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+                      <polyline points="17 6 23 6 23 12"/>
+                    </svg>
+                    Buy $EMFI on pump.fun
+                  </a>
+                )}
               </div>
               <div className="hero-stats">
                 {heroStats.map(s => (
@@ -1130,6 +1154,23 @@ function Landing() {
               </ul>
             </div>
           </div>
+          {tokenCA && (
+            <div className="footer-ca">
+              <span className="footer-ca-label">$EMFI CA</span>
+              <code
+                className="footer-ca-addr"
+                title="Click to copy"
+                onClick={() => navigator.clipboard.writeText(tokenCA)}
+              >
+                {tokenCA}
+              </code>
+              {buyUrl && (
+                <a href={buyUrl} target="_blank" rel="noopener noreferrer" className="footer-ca-buy">
+                  Buy on pump.fun ↗
+                </a>
+              )}
+            </div>
+          )}
           <div className="footer-bottom">
             <span>© 2025 EmeraldFi. All rights reserved.</span>
             <span className="footer-disclaimer">Not financial advice. Trade responsibly.</span>

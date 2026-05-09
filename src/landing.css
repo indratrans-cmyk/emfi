@@ -1123,6 +1123,84 @@ section { position: relative; z-index: 1; }
   color: var(--warning);
   font-size: 0.7rem;
 }
+/* ─── Buy Button ─────────────────────────────────────────────────────────────── */
+.btn-buy-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #00e56b 0%, #00b854 100%);
+  color: #030806;
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: opacity var(--t-fast), transform var(--t-fast);
+  white-space: nowrap;
+}
+.btn-buy-nav:hover { opacity: 0.9; transform: translateY(-1px); }
+
+.btn-buy-hero {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 24px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(0,229,107,0.15) 0%, rgba(0,184,84,0.15) 100%);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: background var(--t-fast), transform var(--t-fast);
+  white-space: nowrap;
+  animation: fadeInUp 0.7s var(--ease) 0.5s both;
+}
+.btn-buy-hero:hover { background: rgba(0,229,107,0.22); transform: translateY(-1px); }
+
+/* ─── Footer CA ──────────────────────────────────────────────────────────────── */
+.footer-ca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 1.5rem;
+  background: rgba(0,229,107,0.04);
+  border: 1px solid rgba(0,229,107,0.15);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.footer-ca-label {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+  white-space: nowrap;
+}
+.footer-ca-addr {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--t-fast);
+  word-break: break-all;
+}
+.footer-ca-addr:hover { color: var(--text); }
+.footer-ca-buy {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+  letter-spacing: 0.05em;
+}
+.footer-ca-buy:hover { text-decoration: underline; }
+
 .footer-social-link {
   display: inline-flex;
   align-items: center;

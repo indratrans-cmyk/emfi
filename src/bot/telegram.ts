@@ -160,6 +160,7 @@ export async function setMyCommands(): Promise<void> {
         { command: "hiveloss", description: "🐝 Community loss intelligence" },
         { command: "patterns", description: "📋 View all 8 risk patterns" },
         { command: "token",    description: "🔍 Check token risk: /token <address>" },
+        { command: "ca",       description: "🟢 Get $EMFI contract address" },
         { command: "report",   description: "📝 Submit anonymous loss report" },
         { command: "myid",     description: "🆔 Get your Telegram chat ID" },
         { command: "help",     description: "❓ Show all commands" },
@@ -563,6 +564,37 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     case "/report":
       await handleReport(chatId);
       break;
+    case "/ca":
+    case "/token_address": {
+      const ca = Bun.env.EMFI_TOKEN_ADDRESS;
+      if (!ca) {
+        await sendMessage(chatId,
+          `⏳ <b>$EMFI not launched yet.</b>\n\n` +
+          `Follow <a href="https://x.com/emeraldfinace">@emeraldfinace</a> on X for the launch announcement.`
+        );
+      } else {
+        await sendMessage(chatId, `\
+🟢 <b>$EMFI Contract Address</b>
+
+<pre>┌──────────────────────────────┐
+│  Token    $EMFI              │
+│  Network  Solana             │
+│  DEX      pump.fun           │
+└──────────────────────────────┘</pre>
+
+<code>${ca}</code>
+
+<i>Tap the address above to copy.</i>`,
+          {
+            inline_keyboard: [[
+              { text: "🚀 Buy on pump.fun", url: `https://pump.fun/coin/${ca}` },
+              { text: "🌐 Website",         url: SITE_URL },
+            ]],
+          }
+        );
+      }
+      break;
+    }
     case "/myid":
       await sendMessage(chatId,
         `🆔 <b>Your Telegram IDs</b>\n\n` +
