@@ -1,7 +1,6 @@
 import { getDb } from "../db/database.ts";
 import { scanWallet } from "./emeraldguard.ts";
 import { getWalletBalance, getHeliusTransactions } from "./solana.ts";
-import { sendEmail, buildAlertEmail } from "./email.ts";
 
 const SCAN_INTERVAL_MS   = 3_600_000;      // 1 hour
 const CACHE_WINDOW_MS    = 50 * 60 * 1000; // 50 minutes
@@ -31,8 +30,7 @@ async function sendTelegramAlert(chatId: string, text: string): Promise<void> {
 
 async function scanRegisteredWallet(
   address: string,
-  chatId: string,
-  emailAddress?: string
+  chatId: string
 ): Promise<void> {
   const now = Date.now();
   const lastScan = lastScanAt.get(address) ?? 0;
@@ -77,13 +75,6 @@ async function scanRegisteredWallet(
     msg += `_Use /guard ${address} for full report._`;
 
     await sendTelegramAlert(chatId, msg);
-
-    // ── Email alert ─────────────────────────────────────────────────────────
-    if (emailAddress) {
-      const riskLabel = report.overallRisk.toUpperCase();
-      const subject   = `${riskEmoji} EmeraldGuard Alert — ${riskLabel} risk on your wallet`;
-      await sendEmail(emailAddress, subject, buildAlertEmail(address, report));
-    }
   } catch (err) {
     console.error(`[Scheduler] Error scanning wallet ${address.slice(0, 8)}...:`, err);
   }
@@ -103,11 +94,11 @@ async function pingHeartbeat(): Promise<void> {
 async function runScheduledScans(): Promise<void> {
   const db = getDb();
 
-  type WalletRow = { address: string; telegram_chat_id: string; email_address: string | null };
+  type WalletRow = { address: string; telegram_chat_id: string };
 
   const wallets = db
     .query(
-      `SELECT address, telegram_chat_id, email_address FROM wallets
+      `SELECT address, telegram_chat_id FROM wallets
        WHERE telegram_chat_id IS NOT NULL AND guard_enabled = 1`
     )
     .all() as WalletRow[];
@@ -117,11 +108,7 @@ async function runScheduledScans(): Promise<void> {
   console.log(`[Scheduler] Scanning ${wallets.length} registered wallet(s)...`);
 
   for (const wallet of wallets) {
-    await scanRegisteredWallet(
-      wallet.address,
-      wallet.telegram_chat_id,
-      wallet.email_address ?? undefined
-    );
+    await scanRegisteredWallet(wallet.address, wallet.telegram_chat_id);
   }
 }
 

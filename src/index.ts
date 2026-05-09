@@ -10,7 +10,7 @@ import { handleBlacklist } from "./routes/blacklist.ts";
 import { handleGenerateApiKey, handleListApiKeys, validateApiKey } from "./routes/apikeys.ts";
 import { handleDashboardData } from "./routes/dashboardApi.ts";
 import { checkScanRateLimit, checkDefaultRateLimit } from "./middleware/rateLimit.ts";
-import { getDb, setWalletEmail } from "./db/database.ts";
+import { getDb } from "./db/database.ts";
 import { startScheduler } from "./services/scheduler.ts";
 import { subscribe, unsubscribe } from "./services/pubsub.ts";
 import type { TelegramUpdate } from "./types/index.ts";
@@ -551,32 +551,6 @@ const server = Bun.serve<WsData>({
       const rl = checkDefaultRateLimit(req);
       if (rl) return secureHeaders(rl);
       return secureHeaders(handleDashboardData(req));
-    }
-
-    // ─── Email subscription ───────────────────────────────────────────────────
-    if (path === "/api/wallet/email" && method === "POST") {
-      const rl = checkDefaultRateLimit(req);
-      if (rl) return secureHeaders(rl);
-      try {
-        const body = await req.json() as { walletAddress?: string; email?: string };
-        const { walletAddress, email } = body;
-        if (!walletAddress || !email || !email.includes("@")) {
-          return secureHeaders(new Response(
-            JSON.stringify({ success: false, error: "walletAddress and email required" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          ));
-        }
-        setWalletEmail(walletAddress, email);
-        return secureHeaders(new Response(
-          JSON.stringify({ success: true, data: { message: "Email registered for alerts" }, timestamp: Date.now() }),
-          { headers: { "Content-Type": "application/json" } }
-        ));
-      } catch {
-        return secureHeaders(new Response(
-          JSON.stringify({ success: false, error: "Invalid request body" }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        ));
-      }
     }
 
     // ─── Uptime Ping ──────────────────────────────────────────────────────────

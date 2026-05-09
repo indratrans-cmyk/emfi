@@ -377,6 +377,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     case "/report":
       await handleReport(chatId);
       break;
+    case "/myid":
+      await sendMessage(chatId, `Your Telegram Chat ID: \`${chatId}\`\nUser ID: \`${userId}\``);
+      break;
     default:
       if (text.startsWith("/")) {
         await sendMessage(chatId, "Unknown command. Use /help to see available commands.");
