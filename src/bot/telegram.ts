@@ -6,27 +6,100 @@ import { registerWallet, getWalletByTelegramId } from "../db/database.ts";
 import type { TelegramUpdate } from "../types/index.ts";
 
 const BASE_URL = `https://api.telegram.org/bot${Bun.env.TELEGRAM_BOT_TOKEN}`;
-
-// Secret token used to verify that webhook requests genuinely come from Telegram.
-// Set TELEGRAM_SECRET_TOKEN in your environment to enable verification.
+const SITE_URL = "https://emeraldfinance.fun";
 const WEBHOOK_SECRET = Bun.env.TELEGRAM_SECRET_TOKEN ?? "";
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+interface InlineButton { text: string; url?: string; callback_data?: string }
+type InlineKeyboard = { inline_keyboard: InlineButton[][] }
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function riskBadge(risk: string): string {
+  return ({ critical: "🔴 CRITICAL", high: "🟠 HIGH", medium: "🟡 MEDIUM", low: "🟢 LOW" })[risk] ?? "⚪ UNKNOWN";
+}
+
+function sevEmoji(s: string): string {
+  return ({ critical: "🔴", high: "🟠", medium: "🟡", low: "🟢" })[s] ?? "⚪";
+}
+
+function shortAddr(a: string): string {
+  return `${a.slice(0, 8)}…${a.slice(-4)}`;
+}
+
+// ─── Keyboards ────────────────────────────────────────────────────────────────
+
+const KB_MAIN: InlineKeyboard = {
+  inline_keyboard: [
+    [
+      { text: "🔍 Scan Wallet",   url: `${SITE_URL}/#cta` },
+      { text: "📊 Dashboard",     url: `${SITE_URL}/dashboard` },
+    ],
+    [
+      { text: "🐝 HiveLoss",      url: `${SITE_URL}/#hiveloss` },
+      { text: "🛡 Patterns",      url: `${SITE_URL}/#proof` },
+    ],
+    [
+      { text: "🌐 Website",       url: SITE_URL },
+    ],
+  ],
+};
+
+const KB_AFTER_SCAN = (address: string): InlineKeyboard => ({
+  inline_keyboard: [
+    [
+      { text: "📊 View Dashboard", url: `${SITE_URL}/dashboard?address=${address}` },
+      { text: "🔄 Scan Again",     callback_data: `rescan:${address}` },
+    ],
+    [
+      { text: "📋 Submit Loss Report", callback_data: "report" },
+    ],
+  ],
+});
+
+const KB_HIVELOSS: InlineKeyboard = {
+  inline_keyboard: [
+    [
+      { text: "📋 Submit Report",  callback_data: "report" },
+      { text: "🌐 Full Dashboard", url: SITE_URL },
+    ],
+  ],
+};
 
 // ─── Send Message ─────────────────────────────────────────────────────────────
 
 async function sendMessage(
   chatId: number,
   text: string,
-  parseMode: "Markdown" | "HTML" = "Markdown"
+  keyboard?: InlineKeyboard
 ): Promise<void> {
-  await fetch(`${BASE_URL}/sendMessage`, {
+  try {
+    await fetch(`${BASE_URL}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        ...(keyboard ? { reply_markup: keyboard } : {}),
+      }),
+    });
+  } catch (err) {
+    console.error("[Bot] sendMessage failed:", err);
+  }
+}
+
+async function answerCallback(callbackId: string, text?: string): Promise<void> {
+  await fetch(`${BASE_URL}/answerCallbackQuery`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: parseMode,
-      disable_web_page_preview: true,
-    }),
+    body: JSON.stringify({ callback_query_id: callbackId, text: text ?? "" }),
   });
 }
 
@@ -38,14 +111,10 @@ async function sendTyping(chatId: number): Promise<void> {
   });
 }
 
-// ─── Set Webhook ──────────────────────────────────────────────────────────────
+// ─── Webhook Auth ─────────────────────────────────────────────────────────────
 
-/**
- * Verifies the X-Telegram-Bot-Api-Secret-Token header.
- * Returns a 401 Response when the token is missing or wrong, undefined when OK.
- */
 export function verifyWebhookSecret(req: Request): Response | undefined {
-  if (!WEBHOOK_SECRET) return undefined; // verification disabled — no secret configured
+  if (!WEBHOOK_SECRET) return undefined;
   const provided = req.headers.get("x-telegram-bot-api-secret-token") ?? "";
   if (provided !== WEBHOOK_SECRET) {
     return new Response(
@@ -56,59 +125,69 @@ export function verifyWebhookSecret(req: Request): Response | undefined {
   return undefined;
 }
 
+// ─── Set Webhook ──────────────────────────────────────────────────────────────
+
 export async function setWebhook(): Promise<void> {
   const webhookUrl = Bun.env.TELEGRAM_WEBHOOK_URL;
   if (!webhookUrl) {
     console.warn("TELEGRAM_WEBHOOK_URL not set, skipping webhook registration");
     return;
   }
-
   const body: Record<string, string> = { url: webhookUrl };
   if (WEBHOOK_SECRET) body["secret_token"] = WEBHOOK_SECRET;
 
-  const res = await fetch(`${BASE_URL}/setWebhook`, {
+  const res  = await fetch(`${BASE_URL}/setWebhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-
   const data = (await res.json()) as { ok: boolean; description?: string };
-  if (data.ok) {
-    console.log("✅ Telegram webhook set:", webhookUrl);
-  } else {
-    console.error("❌ Webhook setup failed:", data.description);
-  }
+  if (data.ok) console.log("✅ Telegram webhook set:", webhookUrl);
+  else         console.error("❌ Webhook setup failed:", data.description);
 }
 
 export async function setMyCommands(): Promise<void> {
-  if (!Bun.env.TELEGRAM_BOT_TOKEN) {
-    console.warn("TELEGRAM_BOT_TOKEN not set, skipping setMyCommands");
-    return;
-  }
+  if (!Bun.env.TELEGRAM_BOT_TOKEN) return;
 
-  const commands = [
-    { command: "start",    description: "Welcome & quick guide" },
-    { command: "register", description: "Link wallet for monitoring: /register <address>" },
-    { command: "guard",    description: "Scan wallet: /guard <address>" },
-    { command: "hiveloss", description: "Community loss intelligence" },
-    { command: "patterns", description: "View all 8 risk patterns" },
-    { command: "token",    description: "Check token risk: /token <address>" },
-    { command: "report",   description: "Submit anonymous loss report" },
-    { command: "help",     description: "Show all commands" },
-  ];
-
-  const res = await fetch(`${BASE_URL}/setMyCommands`, {
+  await fetch(`${BASE_URL}/setMyCommands`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ commands }),
+    body: JSON.stringify({
+      commands: [
+        { command: "start",    description: "🏠 Home — welcome & quick guide" },
+        { command: "register", description: "🔗 Link wallet for hourly monitoring" },
+        { command: "guard",    description: "🛡 Scan wallet: /guard <address>" },
+        { command: "hiveloss", description: "🐝 Community loss intelligence" },
+        { command: "patterns", description: "📋 View all 8 risk patterns" },
+        { command: "token",    description: "🔍 Check token risk: /token <address>" },
+        { command: "report",   description: "📝 Submit anonymous loss report" },
+        { command: "myid",     description: "🆔 Get your Telegram chat ID" },
+        { command: "help",     description: "❓ Show all commands" },
+      ],
+    }),
   });
 
-  const data = (await res.json()) as { ok: boolean; description?: string };
-  if (data.ok) {
-    console.log("✅ Telegram bot commands registered");
-  } else {
-    console.error("❌ setMyCommands failed:", data.description);
-  }
+  // Set bot description shown on the profile page
+  await fetch(`${BASE_URL}/setMyDescription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      description:
+        "EmeraldFi protects your Solana wallet from catastrophic losses. " +
+        "AI-powered behavioral pattern detection + community loss intelligence. " +
+        "Free wallet scan — no wallet connect required.",
+    }),
+  });
+
+  await fetch(`${BASE_URL}/setMyShortDescription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      short_description: "Solana behavioral risk protection. Detect dangerous patterns before you lose.",
+    }),
+  });
+
+  console.log("✅ Telegram bot commands & description registered");
 }
 
 // ─── Command Handlers ─────────────────────────────────────────────────────────
@@ -116,73 +195,102 @@ export async function setMyCommands(): Promise<void> {
 async function handleStart(chatId: number, userId: string, name: string): Promise<void> {
   const existing = getWalletByTelegramId(userId);
   const walletLine = existing
-    ? `\n✅ *Your wallet is registered:* \`${(existing["address"] as string).slice(0, 8)}...\`\n`
-    : `\n📌 *Step 1:* Register your wallet\n/register \`<your_wallet_address>\`\n`;
+    ? `\n✅ <b>Registered wallet:</b> <code>${shortAddr(existing["address"] as string)}</code>`
+    : `\n📌 Start with: <code>/register &lt;your_wallet&gt;</code>`;
 
-  await sendMessage(
-    chatId,
-    `🟢 *Welcome to EmeraldFi, ${name}!*
-
-EmeraldFi protects your Solana wallet from catastrophic losses before they happen.
-
-🛡️ *EmeraldGuard* — AI detects 8 dangerous behavioral patterns BEFORE you lose
-🐝 *HiveLoss* — Community intelligence from thousands of real losses
+  await sendMessage(chatId, `\
+🟢 <b>Welcome to EmeraldFi, ${esc(name)}!</b>
 ${walletLine}
-*Quick Start:*
-/register \`<wallet>\` — Link wallet for hourly monitoring
-/guard \`<wallet>\` — Run instant scan now
-/hiveloss — View community intelligence
-/patterns — See all 8 risk patterns
-/token \`<address>\` — Check if a token is risky
 
-*🔒 Privacy: Your wallet address is always hashed. Never stored raw.*
+<pre>┌──────────────────────────────┐
+│  🛡  EmeraldGuard            │
+│  Detects 8 dangerous         │
+│  patterns BEFORE you lose    │
+├──────────────────────────────┤
+│  🐝  HiveLoss                │
+│  Community intelligence      │
+│  from thousands of losses    │
+└──────────────────────────────┘</pre>
 
-Dashboard: https://emeraldfinance.fun`
-  );
+<b>Quick Commands</b>
+▸ /register <code>wallet</code> — hourly monitoring
+▸ /guard <code>wallet</code> — instant scan now
+▸ /hiveloss — community stats
+▸ /patterns — all 8 risk patterns
+▸ /token <code>address</code> — token risk check
+
+<i>🔒 Privacy: wallet addresses are hashed, never stored raw.</i>`, KB_MAIN);
 }
 
 async function handleRegister(chatId: number, userId: string, args: string[]): Promise<void> {
   const address = args[0];
   if (!address) {
-    await sendMessage(
-      chatId,
-      `Usage: /register \`<wallet_address>\`\n\nThis links your Solana wallet to Telegram for *hourly monitoring*.\nYou'll get alerts when critical patterns are detected.`
+    await sendMessage(chatId,
+      `📌 <b>Register Wallet for Monitoring</b>\n\n` +
+      `Usage: <code>/register &lt;wallet_address&gt;</code>\n\n` +
+      `This links your Solana wallet to Telegram.\n` +
+      `You'll receive automatic alerts every hour if critical patterns are detected.`
     );
     return;
   }
   if (!isValidSolanaAddress(address)) {
-    await sendMessage(chatId, "❌ Invalid Solana wallet address. Please check and try again.");
+    await sendMessage(chatId,
+      `❌ <b>Invalid Address</b>\n\n` +
+      `<code>${esc(address)}</code>\n\n` +
+      `Please provide a valid Solana wallet address.`
+    );
     return;
   }
+
   registerWallet(address, userId, String(chatId));
-  await sendMessage(
-    chatId,
-    `✅ *Wallet registered for monitoring!*\n\n` +
-      `Wallet: \`${address.slice(0, 8)}...${address.slice(-4)}\`\n\n` +
-      `EmeraldGuard will scan your wallet every hour and alert you if *critical or high-risk* patterns are detected.\n\n` +
-      `Run a scan now: /guard \`${address}\``
+
+  await sendMessage(chatId, `\
+✅ <b>Wallet Registered!</b>
+
+<pre>┌──────────────────────────────┐
+│  📍 Wallet                   │
+│  ${shortAddr(address).padEnd(28)}│
+├──────────────────────────────┤
+│  🛡  Guard       ●  Active   │
+│  ⏰  Schedule    ●  Hourly   │
+│  🔔  Alerts      ●  Telegram │
+└──────────────────────────────┘</pre>
+
+EmeraldGuard will scan your wallet every hour and alert you if <b>CRITICAL</b> or <b>HIGH</b> risk patterns are detected.
+
+Run a scan now: /guard <code>${address.slice(0, 8)}…</code>`,
+    {
+      inline_keyboard: [[
+        { text: "🔍 Scan Now",      callback_data: `rescan:${address}` },
+        { text: "📊 Dashboard",     url: `${SITE_URL}/dashboard?address=${address}` },
+      ]],
+    }
   );
 }
 
-async function handleGuard(
-  chatId: number,
-  userId: string,
-  args: string[]
-): Promise<void> {
-  const address = args[0] ?? getWalletByTelegramId(userId)?.["address"] as string | undefined;
+async function handleGuard(chatId: number, userId: string, args: string[]): Promise<void> {
+  const address = args[0] ?? (getWalletByTelegramId(userId)?.["address"] as string | undefined);
 
   if (!address) {
-    await sendMessage(chatId, "Usage: /guard `<your_wallet_address>`\n\nExample:\n`/guard 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU`");
+    await sendMessage(chatId,
+      `🛡 <b>EmeraldGuard Wallet Scan</b>\n\n` +
+      `Usage: <code>/guard &lt;wallet_address&gt;</code>\n\n` +
+      `Example:\n<code>/guard 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU</code>\n\n` +
+      `Or <b>register your wallet</b> first:\n<code>/register &lt;address&gt;</code>`
+    );
     return;
   }
-
   if (!isValidSolanaAddress(address)) {
-    await sendMessage(chatId, "❌ Invalid Solana wallet address.");
+    await sendMessage(chatId, `❌ <b>Invalid Solana address.</b>\n<code>${esc(address)}</code>`);
     return;
   }
 
   await sendTyping(chatId);
-  await sendMessage(chatId, "🔍 Scanning your wallet for behavioral patterns...");
+  await sendMessage(chatId,
+    `🔍 <b>Scanning wallet…</b>\n\n` +
+    `<code>${shortAddr(address)}</code>\n\n` +
+    `<i>Fetching last 50 transactions from Helius…</i>`
+  );
 
   try {
     registerWallet(address, userId, String(chatId));
@@ -190,168 +298,246 @@ async function handleGuard(
       getWalletBalance(address),
       getHeliusTransactions(address, 50),
     ]);
-
     const report = await scanWallet(address, txs, balance, true);
 
     if (report.detectedSignals.length === 0) {
-      await sendMessage(
-        chatId,
-        `✅ *Wallet Clean — No Pre-Disaster Patterns Detected*\n\n` +
-          `Wallet: \`${address.slice(0, 8)}...${address.slice(-4)}\`\n` +
-          `Balance: ${balance.toFixed(4)} SOL\n` +
-          `Transactions analyzed: ${txs.length}\n\n` +
-          `Your recent trading behavior looks safe. Keep it up! 🟢`
+      await sendMessage(chatId, `\
+✅ <b>Wallet Clean — No Risks Detected</b>
+
+<pre>┌──────────────────────────────┐
+│  Wallet   ${shortAddr(address).padEnd(19)}│
+│  Balance  ${(balance.toFixed(4) + " SOL").padEnd(19)}│
+│  TXs      ${String(txs.length).padEnd(19)}│
+│  Status   ✅  SAFE           │
+└──────────────────────────────┘</pre>
+
+No dangerous behavioral patterns found.
+Your recent trading looks safe. Keep it up! 🟢`,
+        KB_AFTER_SCAN(address)
       );
       return;
     }
 
-    const riskEmoji = {
-      critical: "🔴",
-      high: "🟠",
-      medium: "🟡",
-      low: "🟢",
-    }[report.overallRisk];
+    const rBadge  = riskBadge(report.overallRisk);
+    const lossP   = (report.overallLossProbability * 100).toFixed(0);
+    const sigCount = report.detectedSignals.length;
 
-    let message = `${riskEmoji} *EmeraldGuard Alert — ${report.overallRisk.toUpperCase()} RISK*\n\n`;
-    message += `Wallet: \`${address.slice(0, 8)}...${address.slice(-4)}\`\n`;
-    message += `Loss Probability: *${(report.overallLossProbability * 100).toFixed(0)}%*\n\n`;
-    message += `*Detected Patterns:*\n`;
+    let msg = `\
+${sevEmoji(report.overallRisk)} <b>EmeraldGuard Alert — ${rBadge}</b>
 
-    for (const signal of report.detectedSignals) {
-      const emoji = { critical: "🔴", high: "🟠", medium: "🟡", low: "⚪" }[signal.severity];
-      message += `${emoji} *${signal.patternName}*\n`;
-      message += `   ${signal.details}\n`;
-      message += `   Based on ${signal.affectedWallets.toLocaleString()} wallets\n\n`;
+<pre>┌──────────────────────────────┐
+│  Wallet   ${shortAddr(address).padEnd(19)}│
+│  Risk     ${report.overallRisk.toUpperCase().padEnd(19)}│
+│  Loss P   ${(lossP + "%").padEnd(19)}│
+│  Signals  ${String(sigCount).padEnd(19)}│
+└──────────────────────────────┘</pre>
+
+<b>━━ DETECTED PATTERNS ━━</b>\n\n`;
+
+    for (const s of report.detectedSignals) {
+      const prob = (s.lossProbability * 100).toFixed(0);
+      msg += `${sevEmoji(s.severity)} <b>${esc(s.patternName)}</b>  <i>${prob}% loss prob</i>\n`;
+      msg += `<code>${esc(s.details)}</code>\n`;
+      msg += `<i>Based on ${s.affectedWallets.toLocaleString()} wallets</i>\n\n`;
     }
 
     if (report.shouldPause) {
-      message += `⛔ *RECOMMENDATION: PAUSE ALL TRADING*\n`;
-      message += `You are in a high-risk behavioral state.\n\n`;
+      msg += `<b>⛔ RECOMMENDATION: PAUSE ALL TRADING</b>\n`;
+      msg += `<i>You are in a high-risk behavioral state.</i>\n\n`;
     }
 
     if (report.aiInsight) {
-      message += `🤖 *AI Insight:*\n${report.aiInsight}\n\n`;
+      msg += `<b>━━ AI INSIGHT ━━</b>\n`;
+      msg += `<i>${esc(report.aiInsight)}</i>\n\n`;
     }
 
-    message += `_Top recommendation: ${report.detectedSignals[0]?.recommendation}_`;
+    msg += `<i>Top fix: ${esc(report.detectedSignals[0]?.recommendation ?? "—")}</i>`;
 
-    await sendMessage(chatId, message);
+    await sendMessage(chatId, msg, KB_AFTER_SCAN(address));
   } catch (err) {
     console.error("Guard command error:", err);
-    await sendMessage(chatId, "❌ Failed to scan wallet. Please try again in a moment.");
+    await sendMessage(chatId,
+      `❌ <b>Scan Failed</b>\n\n` +
+      `Could not scan <code>${shortAddr(address)}</code>.\n` +
+      `Please try again in a moment.`
+    );
   }
 }
 
 async function handleHiveLoss(chatId: number): Promise<void> {
   await sendTyping(chatId);
-
   try {
     const intel = await getHiveLossIntelligence();
+    const total  = intel.totalLossReports.toLocaleString();
 
-    let message = `🐝 *HiveLoss — Community Intelligence*\n\n`;
-    message += `Total Loss Reports: *${intel.totalLossReports.toLocaleString()}*\n\n`;
+    let msg = `\
+🐝 <b>HiveLoss — Community Intelligence</b>
 
-    if (intel.topRiskyPatterns.length === 0) {
-      message += `No patterns recorded yet. Be the first to contribute!\n\n`;
-    } else {
-      message += `*Most Dangerous Patterns (from real losses):*\n`;
-      for (const p of intel.topRiskyPatterns.slice(0, 5)) {
-        message += `• ${p.patternId.replace(/_/g, " ")}: ${p.reportCount} reports, avg loss *${p.avgLossPercentage}%*\n`;
+<pre>┌──────────────────────────────┐
+│  Total Reports  ${total.padEnd(13)}│
+│  Patterns       8            │
+│  Protection     Community    │
+└──────────────────────────────┘</pre>`;
+
+    if (intel.topRiskyPatterns.length > 0) {
+      msg += `\n\n<b>━━ TOP DANGER PATTERNS ━━</b>\n\n`;
+      const nums = ["①","②","③","④","⑤"];
+      for (const [i, p] of intel.topRiskyPatterns.slice(0, 5).entries()) {
+        const name = p.patternId.replace(/_/g, " ");
+        msg += `${nums[i] ?? "•"} <b>${esc(name)}</b>\n`;
+        msg += `   <code>${p.reportCount} reports</code>  avg loss <b>${p.avgLossPercentage}%</b>\n\n`;
       }
-      message += `\n`;
+    } else {
+      msg += `\n\n<i>No patterns recorded yet. Be the first to contribute!</i>\n\n`;
     }
 
-    message += `⚠️ *Community Warning:*\n${intel.communityWarning}\n\n`;
-    message += `_Share your loss: /report_\n`;
-    message += `_Check a token: /token <address>_`;
+    msg += `<b>⚠️ Community Warning</b>\n<i>${esc(intel.communityWarning)}</i>\n\n`;
+    msg += `<i>Check a token: /token &lt;address&gt;</i>`;
 
-    await sendMessage(chatId, message);
+    await sendMessage(chatId, msg, KB_HIVELOSS);
   } catch (err) {
     console.error("HiveLoss command error:", err);
-    await sendMessage(chatId, "❌ Failed to fetch HiveLoss data.");
+    await sendMessage(chatId, `❌ <b>Failed to fetch HiveLoss data.</b>\nPlease try again.`);
   }
 }
 
 async function handleToken(chatId: number, args: string[]): Promise<void> {
   const tokenAddress = args[0];
-
   if (!tokenAddress) {
-    await sendMessage(chatId, "Usage: /token `<token_address>`");
+    await sendMessage(chatId,
+      `🔍 <b>Token Risk Check</b>\n\n` +
+      `Usage: <code>/token &lt;token_address&gt;</code>\n\n` +
+      `Checks community loss reports for a specific Solana token.`
+    );
     return;
   }
 
   await sendTyping(chatId);
-
-  const risk = getTokenRisk(tokenAddress);
+  const risk  = getTokenRisk(tokenAddress);
   const intel = await getHiveLossIntelligence(tokenAddress);
 
-  const riskLevel = risk.isHighRisk ? "🔴 HIGH RISK" : risk.reports > 0 ? "🟡 CAUTION" : "🟢 UNKNOWN (no data yet)";
+  const riskLevel = risk.isHighRisk ? "🔴  HIGH RISK"
+    : risk.reports > 0             ? "🟡  CAUTION"
+    :                                "🟢  NO DATA";
 
-  let message = `🔍 *Token Risk Check*\n\n`;
-  message += `Address: \`${tokenAddress.slice(0, 8)}...\`\n`;
-  message += `Risk Level: *${riskLevel}*\n\n`;
+  let msg = `\
+🔍 <b>Token Risk Check</b>
+
+<pre>┌──────────────────────────────┐
+│  Token    ${shortAddr(tokenAddress).padEnd(19)}│
+│  Status   ${riskLevel.padEnd(19)}│`;
 
   if (risk.reports > 0) {
-    message += `Community Reports: ${risk.reports}\n`;
-    message += `Average Loss: *${risk.avgLoss.toFixed(0)}%*\n`;
-    message += `Rug Probability: *${(risk.rugProbability * 100).toFixed(0)}%*\n\n`;
-  } else {
-    message += `No community loss reports yet for this token.\n`;
-    message += `Use caution with any unverified token.\n\n`;
+    msg += `\n│  Reports  ${String(risk.reports).padEnd(19)}│`;
+    msg += `\n│  Avg Loss ${(risk.avgLoss.toFixed(0) + "%").padEnd(19)}│`;
+    msg += `\n│  Rug Prob ${((risk.rugProbability * 100).toFixed(0) + "%").padEnd(19)}│`;
   }
 
-  if (intel.tokenWarning) {
-    message += `⚠️ *Warning:* ${intel.communityWarning}`;
+  msg += `\n└──────────────────────────────┘</pre>\n\n`;
+
+  if (risk.reports === 0) {
+    msg += `No community loss reports for this token yet.\n<i>Use caution with any unverified token.</i>`;
+  } else if (intel.tokenWarning) {
+    msg += `<b>⚠️ Warning</b>\n<i>${esc(intel.communityWarning)}</i>`;
   }
 
-  await sendMessage(chatId, message);
+  await sendMessage(chatId, msg);
 }
 
 async function handlePatterns(chatId: number): Promise<void> {
   const patterns = getAllPatterns();
+  const nums = ["①","②","③","④","⑤","⑥","⑦","⑧"];
 
-  let message = `🛡️ *EmeraldGuard — 8 Pre-Disaster Patterns*\n\n`;
-  message += `These patterns are detected BEFORE you lose money:\n\n`;
+  let msg = `\
+🛡 <b>EmeraldGuard — 8 Pre-Disaster Patterns</b>
+
+<i>Detected BEFORE you lose money, not after.</i>
+
+<pre>┌──────────────────────────────┐
+│  Pattern           Loss Prob │
+├──────────────────────────────┤\n`;
 
   for (const p of patterns) {
-    const prob = (p.lossProbability * 100).toFixed(0);
-    message += `*${p.name}* (${prob}% loss probability)\n`;
-    message += `_${p.description}_\n\n`;
+    const prob = ((p.lossProbability ?? 0) * 100).toFixed(0) + "%";
+    const name = p.name.slice(0, 20).padEnd(20);
+    msg += `│  ${name}  ${prob.padStart(5)}  │\n`;
+  }
+  msg += `└──────────────────────────────┘</pre>\n\n`;
+
+  for (const [i, p] of patterns.entries()) {
+    const prob = ((p.lossProbability ?? 0) * 100).toFixed(0);
+    msg += `${nums[i] ?? "•"} <b>${esc(p.name)}</b>  <i>${prob}% loss prob</i>\n`;
+    msg += `<code>${esc(p.description)}</code>\n\n`;
   }
 
-  message += `Use /guard <wallet> to check your wallet now.`;
-  await sendMessage(chatId, message);
+  msg += `Scan your wallet now: /guard &lt;address&gt;`;
+
+  await sendMessage(chatId, msg, {
+    inline_keyboard: [[
+      { text: "🔍 Scan My Wallet", url: `${SITE_URL}/#cta` },
+      { text: "🌐 Website",        url: SITE_URL },
+    ]],
+  });
 }
 
 async function handleReport(chatId: number): Promise<void> {
-  await sendMessage(
-    chatId,
-    `📝 *Submit Loss Report to HiveLoss*\n\n` +
-      `Help protect the community with your experience.\n\n` +
-      `Submit via our web dashboard or API:\n` +
-      `POST /api/hiveloss/submit\n\n` +
-      `Required:\n` +
-      `• walletAddress\n` +
-      `• lossPercentage (0-100)\n\n` +
-      `Your wallet address is hashed — never stored directly.\n` +
-      `Every report makes EmeraldFi smarter for everyone. 🐝`
+  await sendMessage(chatId, `\
+📝 <b>Submit Loss Report to HiveLoss</b>
+
+<pre>┌──────────────────────────────┐
+│  🔒 Anonymous                │
+│  Wallet address is hashed    │
+│  Identity never revealed     │
+├──────────────────────────────┤
+│  📊 Required                 │
+│  • Wallet address            │
+│  • Loss percentage (0–100)   │
+│  • Pattern tags (optional)   │
+└──────────────────────────────┘</pre>
+
+Every report makes EmeraldFi smarter for every trader. 🐝
+
+Submit via the web form:`,
+    {
+      inline_keyboard: [[
+        { text: "📋 Submit on Website", url: `${SITE_URL}/#hiveloss` },
+      ]],
+    }
   );
 }
 
 // ─── Main Update Handler ──────────────────────────────────────────────────────
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
+  // Handle inline button presses
+  if (update.callback_query) {
+    const cq     = update.callback_query;
+    const chatId = cq.message?.chat?.id;
+    const data   = cq.data ?? "";
+    if (!chatId) return;
+
+    await answerCallback(cq.id);
+
+    if (data === "report") {
+      await handleReport(chatId);
+    } else if (data.startsWith("rescan:")) {
+      const address = data.slice(7);
+      const userId  = String(cq.from?.id ?? "");
+      await handleGuard(chatId, userId, [address]);
+    }
+    return;
+  }
+
   const msg = update.message;
   if (!msg?.text || !msg.from) return;
 
   const chatId = msg.chat.id;
   const userId = String(msg.from.id);
-  const name = msg.from.first_name;
-  const text = msg.text.trim();
+  const name   = msg.from.first_name ?? "Trader";
+  const text   = msg.text.trim();
 
   const [rawCmd, ...args] = text.split(/\s+/);
   if (!rawCmd) return;
-
   const cmd = rawCmd.toLowerCase().split("@")[0];
 
   switch (cmd) {
@@ -378,11 +564,19 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       await handleReport(chatId);
       break;
     case "/myid":
-      await sendMessage(chatId, `Your Telegram Chat ID: \`${chatId}\`\nUser ID: \`${userId}\``);
+      await sendMessage(chatId,
+        `🆔 <b>Your Telegram IDs</b>\n\n` +
+        `<b>Chat ID:</b> <code>${chatId}</code>\n` +
+        `<b>User ID:</b> <code>${userId}</code>\n\n` +
+        `<i>Use Chat ID as ADMIN_CHAT_ID in GitHub secrets for uptime alerts.</i>`
+      );
       break;
     default:
       if (text.startsWith("/")) {
-        await sendMessage(chatId, "Unknown command. Use /help to see available commands.");
+        await sendMessage(chatId,
+          `❓ <b>Unknown command.</b>\n\nUse /help to see all available commands.`,
+          KB_MAIN
+        );
       }
   }
 }
