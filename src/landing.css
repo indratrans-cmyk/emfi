@@ -1164,6 +1164,8 @@ section { position: relative; z-index: 1; }
 }
 @media (max-width: 768px) {
   .hero-inner        { grid-template-columns: 1fr; }
+  .hero-image-wrap   { display: none; }
+  .demo-inner        { grid-template-columns: 1fr; }
   .terminal-wrap     { display: none; }
   .problem-grid      { grid-template-columns: 1fr; }
   .solution-grid     { grid-template-columns: 1fr; }
@@ -1322,3 +1324,28 @@ section { position: relative; z-index: 1; }
   color: var(--text-dim);
   white-space: nowrap;
 }
+
+/* ─── Hero Image ─────────────────────────────────────────────────────────────── */
+.hero-image-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hero-image {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  object-fit: contain;
+  border-radius: 16px;
+  animation: fadeInUp 0.7s var(--ease) 0.2s both;
+}
+
+/* ─── Demo Section ───────────────────────────────────────────────────────────── */
+.demo-section { background: var(--surface); }
+.demo-inner {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+}
+.demo-text { display: flex; flex-direction: column; gap: 0; }

@@ -729,8 +729,10 @@ function Landing() {
               </div>
             </div>
 
-            {/* Right: Terminal */}
-            <Terminal />
+            {/* Right: Illustration */}
+            <div className="hero-image-wrap">
+              <img src="/emfibg.png" alt="EmeraldFi" className="hero-image" />
+            </div>
           </div>
         </div>
 
@@ -833,6 +835,24 @@ function Landing() {
                 <li>Crowd-sourced protection that grows over time</li>
               </ul>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ LIVE DEMO ════════════════════════════════════════════════════════ */}
+      <section className="section-pad demo-section">
+        <div className="container">
+          <div className="demo-inner">
+            <div className="demo-text">
+              <div className="section-label">Live Demo</div>
+              <h2 className="heading" style={{ fontSize: "clamp(1.75rem, 3.5vw, 2.6rem)", maxWidth: 460, marginBottom: "0.875rem" }}>
+                See EmeraldGuard<br />In Action
+              </h2>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.95rem", maxWidth: 400, lineHeight: 1.75 }}>
+                A real scan output — dangerous behavioral patterns detected before a single trade is made. This is what protection looks like.
+              </p>
+            </div>
+            <Terminal />
           </div>
         </div>
       </section>
