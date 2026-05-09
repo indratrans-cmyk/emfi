@@ -213,7 +213,7 @@ function useReveal(threshold = 0.15) {
 function Logo() {
   return (
     <div className="nav-logo">
-      <div className="nav-logo-icon"><ShieldIcon /></div>
+      <img src="/emfi-logo.png" alt="EmeraldFi" className="nav-logo-img" />
       <div className="nav-logo-text">
         <span className="nav-logo-name">EmeraldFi</span>
         <span className="nav-logo-tag">Behavioral Shield · Solana</span>

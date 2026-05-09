@@ -252,6 +252,14 @@ const server = Bun.serve({
       const file = Bun.file("./asset/emfi logo png.png");
       return new Response(file, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
     }
+    if (path === "/emfi-logo.png" && method === "GET") {
+      const file = Bun.file("./asset/emfi logo png.png");
+      return new Response(file, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+    }
+    if (path === "/emfibg.png" && method === "GET") {
+      const file = Bun.file("./asset/emfibg.png");
+      return new Response(file, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+    }
 
     if (path === "/emfibg.png" && method === "GET") {
       const file = Bun.file("./asset/emfibg.png");
