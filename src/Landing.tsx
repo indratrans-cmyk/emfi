@@ -479,11 +479,11 @@ function HiveLossForm() {
         <input type="range" min="1" max="100" value={loss} onChange={e => setLoss(e.target.value)} className="hl-range" />
       </div>
       <div className="hl-row">
-        <label className="hl-label">Token Address <span style={{color:"var(--text-dim)"}}}>(optional)</span></label>
+        <label className="hl-label">Token Address <span style={{color:"var(--text-dim)"}}>(optional)</span></label>
         <input className="hl-input" placeholder="Token that caused the loss" value={token} onChange={e => setToken(e.target.value)} />
       </div>
       <div className="hl-row">
-        <label className="hl-label">Pattern Tags <span style={{color:"var(--text-dim)"}}}>(select all that apply)</span></label>
+        <label className="hl-label">Pattern Tags <span style={{color:"var(--text-dim)"}}>(select all that apply)</span></label>
         <div className="hl-tags">
           {ALL_PATTERNS.map(p => (
             <button key={p} className={`hl-tag${tags.includes(p) ? " active" : ""}`} onClick={() => toggleTag(p)}>
