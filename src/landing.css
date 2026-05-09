@@ -1123,6 +1123,18 @@ section { position: relative; z-index: 1; }
   color: var(--warning);
   font-size: 0.7rem;
 }
+.footer-social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: color var(--t-fast);
+}
+.footer-social-link:hover { color: var(--primary); }
 
 /* ─── Scroll Animation ───────────────────────────────────────────────────────── */
 .reveal {
